@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Daily Open Face</title>
+<!--
+  =====================================================================
+  DAILY OPEN-FACE CHINESE  —  built on the daily-webxdc game template
+  =====================================================================
+  One Open-Face Chinese poker board per day, shared in the chat.
+  You're dealt 13 cards ONE AT A TIME and place each into Top (3),
+  Middle (5) or Bottom (5). Rows must rank Bottom >= Middle >= Top or
+  you FOUL (-6). Otherwise you collect royalty points. Same 13 cards
+  for everyone — the variety is in how you build, and the risk is in
+  fouling, so there's nothing to memorize and no "house book".
+
+  Only the GAME object at the top of <script> is game-specific; the
+  rest is the generic daily framework.
+  =====================================================================
+-->
+<style>
+  :root {
+    --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#4f46e5; --accent-dark:#3730a3; --good:#16a34a; --bad:#dc2626;
+    --shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1220; --card:#111a2b; --ink:#e5e7eb; --muted:#9aa4b2; --line:#243149;
+            --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; padding:0; }
+  body { background:var(--bg); color:var(--ink); min-height:100vh; padding:12px;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         display:flex; flex-direction:column; align-items:center; }
+  .app { width:100%; max-width:440px; }
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .brand { display:flex; align-items:baseline; gap:8px; }
+  .brand h1 { margin:0; font-size:24px; letter-spacing:.3px; color:var(--accent); }
+  .brand .puzzle { font-size:13px; color:var(--muted); }
+  .iconbtns { display:flex; gap:6px; }
+  .iconbtn { border:none; background:var(--card); color:var(--ink); width:38px; height:38px;
+             border-radius:10px; font-size:18px; box-shadow:var(--shadow); cursor:pointer; }
+  .iconbtn:active { transform:scale(.94); }
+
+  .datenav { display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:8px; }
+  .navbtn { background:var(--card); border:none; box-shadow:var(--shadow); color:var(--ink);
+            width:30px; height:30px; border-radius:8px; font-size:18px; cursor:pointer; line-height:1; }
+  .navbtn:active { transform:scale(.92); }
+  .navbtn:disabled { opacity:.3; cursor:default; transform:none; }
+  .datelabel { font-size:14px; font-weight:600; min-width:180px; text-align:center; }
+  .datelabel .today { color:var(--accent-dark); }
+
+  /* live presence (who's here right now, via the realtime channel) */
+  .presence { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); margin:14px 4px 2px; }
+  .presence .dot { width:8px; height:8px; border-radius:50%; background:var(--good); flex:0 0 8px; box-shadow:0 0 0 0 rgba(22,163,74,.5); animation:presence-pulse 1.8s ease-out infinite; }
+  @keyframes presence-pulse { 0% { box-shadow:0 0 0 0 rgba(22,163,74,.5); } 70% { box-shadow:0 0 0 9px rgba(22,163,74,0); } 100% { box-shadow:0 0 0 0 rgba(22,163,74,0); } }
+
+  /* the GAME renders into here */
+  .stage { background:var(--card); border-radius:16px; box-shadow:var(--shadow); padding:16px; min-height:160px; }
+
+  /* tabs + leaderboards */
+  .tabs { display:flex; margin-top:16px; border-bottom:1px solid var(--line); }
+  .tab { flex:1; background:none; border:none; padding:10px 0; font-size:13px; font-weight:700;
+         letter-spacing:.6px; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
+  .tab.active { color:var(--ink); border-bottom-color:var(--accent); }
+  .pane .card { margin-top:12px; background:var(--card); border-radius:14px; box-shadow:var(--shadow); padding:8px 14px 6px; }
+  .pane .card h2 { margin:4px 0; font-size:14px; display:flex; align-items:center; gap:6px; }
+  .pane .card h2 .count { color:var(--muted); font-weight:400; font-size:12px; }
+
+  .lbrow { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:8px 4px; border-bottom:1px solid var(--line); }
+  .lbrow:last-child { border-bottom:none; }
+  .lbrow .rank { width:26px; text-align:center; font-weight:700; color:var(--muted); font-size:14px; }
+  .lbrow .nm { flex:1; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lbrow .sc { font-weight:700; font-variant-numeric:tabular-nums; font-size:14px; color:var(--ink); }
+  .lbrow .sc.foul { color:var(--bad); }
+  .lbrow.me { background:rgba(79,70,229,.12); border-radius:8px; }
+  .lbempty { color:var(--muted); font-size:14px; text-align:center; padding:18px 0; }
+
+  /* "how they built it" strip in the daily board: three stacked mini-rows */
+  .lbrow .play { flex-basis:100%; display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:3px 0 3px 36px; }
+  .minihand { display:flex; gap:3px; }
+  .mcard { width:20px; height:27px; border-radius:3px; background:#fbfbfd; border:1px solid #c7ccd6;
+           display:flex; flex-direction:column; align-items:center; justify-content:center;
+           font-size:9.5px; font-weight:800; line-height:1.02; }
+  .mcard.red { color:#dc2626; } .mcard.black { color:#1f2937; }
+  .mcard .ms { font-size:10px; }
+  .mplay-meta { font-size:11px; color:var(--muted); margin-top:1px; }
+  .mplay-meta.foul { color:var(--bad); font-weight:700; }
+  .prow { display:flex; align-items:center; gap:7px; }
+  .prow .pinfo { font-size:10.5px; color:var(--muted); white-space:nowrap; }
+  .prow .pinfo b { color:var(--accent-dark); }
+  .pcalc { font-size:11px; color:var(--muted); margin-top:3px; }
+  .pcalc b { color:var(--ink); font-weight:800; }
+  .pcalc.foul { color:var(--bad); font-weight:700; }
+  /* locked daily board (hidden until you've played today) */
+  .lblocked { padding:14px 6px; text-align:center; }
+  .lblocked .lk { font-size:14px; font-weight:700; }
+  .lblocked .who { font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5; }
+
+  .otable { width:100%; border-collapse:collapse; font-size:13px; }
+  .otable th { text-align:right; font-size:11px; color:var(--muted); font-weight:600; padding:4px 5px;
+               border-bottom:1px solid var(--line); white-space:nowrap; }
+  .otable th.l, .otable td.l { text-align:left; }
+  .otable td { text-align:right; padding:7px 5px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  .otable tbody tr:last-child td { border-bottom:none; }
+  .otable td.pnm { font-weight:600; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .otable td.pts { font-weight:700; }
+  .otable tr.me td { background:rgba(79,70,229,.12); }
+  .scorehelp { font-size:11px; color:var(--muted); margin:8px 2px 2px; line-height:1.5; }
+
+  .countdown { text-align:center; font-size:12px; color:var(--muted); margin-top:16px; }
+  .countdown b { color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  /* full-screen overall + setup */
+  .screen { position:fixed; inset:0; background:var(--bg); z-index:70; display:none; overflow-y:auto; padding:12px; }
+  .screen.show { display:block; }
+  .screen-inner { width:100%; max-width:440px; margin:0 auto; }
+
+  .setup { max-width:360px; margin:36px auto 0; text-align:center; padding:0 6px; }
+  .setup h2 { font-size:24px; margin:0 0 10px; }
+  .setup p { font-size:14px; color:var(--muted); line-height:1.55; margin:0 0 4px; }
+  .setlabel { display:block; text-align:left; font-size:11px; letter-spacing:.6px; color:var(--muted); margin:22px 0 6px; font-weight:700; }
+  .setup select { width:100%; padding:12px; font-size:15px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .sethint { font-size:12px; color:var(--accent-dark); margin:8px 0 18px; min-height:30px; }
+  .setnote { font-size:12px; margin-top:14px; color:var(--muted); }
+
+  /* generic buttons */
+  .btn { border:none; border-radius:12px; padding:12px 14px; font-size:15px; font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
+  .btn:active { transform:scale(.97); }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-ghost { background:var(--card); color:var(--ink); }
+  .btn:disabled { opacity:.45; cursor:default; transform:none; }
+  .actions { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  .actions .btn { min-width:120px; }
+
+  /* modal */
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; padding:16px; z-index:50; }
+  .overlay.show { display:flex; }
+  .modal { background:var(--card); color:var(--ink); border-radius:16px; width:100%; max-width:400px; max-height:86vh; overflow-y:auto; padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.4); }
+  .modal h2 { margin:0 0 10px; font-size:19px; }
+  .modal p,.modal li { font-size:14px; line-height:1.5; }
+  .closebar { display:flex; justify-content:flex-end; }
+  .x { border:none; background:transparent; font-size:22px; color:var(--muted); cursor:pointer; line-height:1; }
+
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg);
+           padding:10px 16px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:80; }
+  .toast.show { opacity:1; }
+
+  /* ---- Open-Face Chinese board ---- */
+  .ofc { text-align:center; }
+  .board { display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .board.fouled { outline:2px solid var(--bad); outline-offset:4px; border-radius:12px; }
+  .brow { display:flex; flex-direction:column; align-items:center; gap:3px; padding:5px 6px; border-radius:9px;
+          border:2px solid transparent; width:100%; }
+  .brow .rhead { font-size:10px; font-weight:800; letter-spacing:.6px; color:var(--muted); display:flex; gap:6px; align-items:baseline; }
+  .brow .rhead .made { color:var(--ink); font-weight:700; letter-spacing:0; }
+  .brow .rhead .roy { color:var(--accent-dark); font-weight:800; }
+  .slots { display:flex; gap:4px; }
+  .slot { width:40px; height:56px; border-radius:6px; border:1.5px dashed var(--line); }
+  .brow.tappable { cursor:pointer; border-color:rgba(79,70,229,.4); background:rgba(79,70,229,.06); }
+  .brow.tappable:active { transform:scale(.99); }
+  .brow.full { opacity:.9; }
+
+  .bcard { width:40px; height:56px; border-radius:6px; background:#fcfcfa; position:relative;
+           display:flex; flex-direction:column; align-items:center; justify-content:center;
+           box-shadow:0 1px 2px rgba(0,0,0,.35); user-select:none; }
+  .bcard .brk { font-size:16px; font-weight:800; line-height:1; }
+  .bcard .bsu { font-size:15px; line-height:1; margin-top:1px; }
+  .bcard.red { color:#d11a2a; } .bcard.black { color:#181a1f; }
+
+  .toplace { margin-top:16px; display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .curlabel { font-size:11px; font-weight:800; letter-spacing:.6px; color:var(--muted); }
+  /* the tray of cards waiting to be placed (5 in the opening, up to 3 per round) */
+  .tray { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+  .trayc { cursor:pointer; border-radius:8px; padding:2px; transition:transform .1s; position:relative; }
+  .trayc.sel { transform:translateY(-5px); }
+  .trayc.sel .bcard { box-shadow:0 0 0 3px var(--accent), 0 5px 12px rgba(0,0,0,.35); }
+  .trayc.toss { cursor:default; opacity:.55; }
+  .trayc.toss .bcard { box-shadow:0 0 0 2px var(--bad); }
+  .tosstag { position:absolute; left:50%; bottom:-7px; transform:translateX(-50%); background:var(--bad); color:#fff;
+             font-size:8px; font-weight:800; letter-spacing:.5px; padding:1px 5px; border-radius:5px; }
+  .discpile { display:flex; align-items:center; gap:3px; justify-content:center; flex-wrap:wrap; font-size:10px; color:var(--muted); margin-top:4px; }
+
+  .instruct { font-size:15px; font-weight:800; margin:13px 0 2px; }
+  .instruct .em { color:var(--accent); }
+  .instruct.foul { color:var(--bad); }
+  .instruct.win { color:var(--good); }
+  .subhint { font-size:12px; color:var(--muted); margin:4px 0 0; line-height:1.5; }
+  .progress { font-size:11px; font-weight:700; color:var(--accent); letter-spacing:.5px; }
+
+  .dealprev { display:flex; flex-wrap:wrap; gap:4px; justify-content:center; opacity:.5; }
+
+  /* royalty table in help */
+  table.pt { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0; }
+  table.pt td { padding:4px 6px; border-bottom:1px solid var(--line); }
+  table.pt tr:last-child td { border-bottom:none; }
+  table.pt td:last-child { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; color:var(--accent-dark); }
+
+  /* poker-hand ranking reference in help */
+  ol.hr { margin:6px 0 14px; padding-left:22px; }
+  ol.hr li { font-size:13px; line-height:1.65; }
+  ol.hr li span { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><h1 id="appName">Daily</h1><span class="puzzle" id="puzzleNo">#—</span></div>
+    <div class="iconbtns"><button class="iconbtn" id="btnHelp" title="How to play">❓</button></div>
+  </header>
+
+  <div class="datenav">
+    <button class="navbtn" id="navPrev" title="Previous day">‹</button>
+    <span class="datelabel" id="dateLabel">…</span>
+    <button class="navbtn" id="navNext" title="Next day">›</button>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <div class="presence" id="presence" style="display:none"></div>
+
+  <div class="tabs">
+    <button class="tab active" id="tabDaily">DAILY</button>
+    <button class="tab" id="tabOverall">OVERALL</button>
+  </div>
+
+  <div class="pane" id="paneDaily">
+    <div class="card">
+      <h2><span id="dailyDate">Today</span> <span class="count" id="lbCount"></span></h2>
+      <div id="lb"></div>
+    </div>
+  </div>
+
+  <div class="countdown">Next puzzle in <b id="cd">—</b></div>
+</div>
+
+<!-- Overall standings (full screen) -->
+<div class="screen" id="overallScreen">
+  <div class="screen-inner">
+    <header>
+      <div class="brand"><h1 id="ovName">Daily</h1><span class="puzzle" id="ovPuzzleNo">#—</span></div>
+      <button class="iconbtn" id="ovClose" title="Back">✕</button>
+    </header>
+    <div class="tabs">
+      <button class="tab" id="ovTabDaily">DAILY</button>
+      <button class="tab active">OVERALL</button>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h2>Overall standings</h2>
+      <div id="overall"></div>
+      <div class="scorehelp" id="scoreHelp"></div>
+    </div>
+  </div>
+</div>
+
+<!-- First-opener setup -->
+<div class="screen" id="setupScreen">
+  <div class="screen-inner">
+    <header><div class="brand"><h1 id="setupName">Daily</h1></div></header>
+    <div class="setup">
+      <h2 id="setupTitle">Daily</h2>
+      <p>You're the first to open this. Pick when the daily puzzle resets each day — everyone in the chat will follow your choice.</p>
+      <label class="setlabel" for="tzSelect">RESET AT MIDNIGHT IN</label>
+      <select id="tzSelect"></select>
+      <p class="sethint" id="tzHint"></p>
+      <button class="btn btn-primary" id="startDaily" style="width:100%">Start the daily</button>
+      <p class="setnote">This locks once set, so the leaderboards stay consistent for the whole group.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Help -->
+<div class="overlay" id="ovHelp">
+  <div class="modal">
+    <div class="closebar"><button class="x" data-close>×</button></div>
+    <h2 style="margin-top:0">Poker hands — strongest first</h2>
+    <div id="handRank"></div>
+    <h2 id="helpTitle">How to play</h2>
+    <div id="helpBody"></div>
+    <p style="color:var(--muted)">Only today's puzzle can be played — use the ‹ › arrows to look back at earlier days and their results. A fresh deal drops every day at midnight in the chat's chosen timezone.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Real webxdc API, served by the host (Delta Chat etc.). REQUIRED for chat
+     bubble document/summary + info/notify messages to actually be sent. In a
+     plain browser this 404s harmlessly and the inline dev stub below takes over. -->
+<script src="webxdc.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ===================================================================
+  // ===== GAME ADAPTER  —  Daily Open-Face Chinese ====================
+  // ===================================================================
+  // Result contract handed back via ctx.submit:
+  //   { score:   <royalty points; a FOUL is -6 — HIGHER is better>,
+  //     win:     <boolean — true if the board is legal (didn't foul)>,
+  //     display: "<'+18' or 'FOUL'>",
+  //     place }  // array[13] of 0|1|2 (top|middle|bottom) for each dealt card
+  //
+  // Everyone is dealt the SAME 13 cards (shared deck). The variety is in
+  // how you build the board under one-card-at-a-time uncertainty, and the
+  // risk is fouling. The OVERALL "Score" column sums your daily points.
+  // ===================================================================
+  var GAME = {
+    name: "Daily Open Face",
+    verb: "built",               // chat line: "Alice built #5 — +18"
+
+    // Poker-hand ranking shown ABOVE "How to play" as a quick reference.
+    handRankHTML:
+      "<ol class='hr'>" +
+      "<li>Royal flush <span>A K Q J 10, one suit</span></li>" +
+      "<li>Straight flush <span>five in a row, one suit</span></li>" +
+      "<li>Four of a kind</li>" +
+      "<li>Full house <span>trips + pair</span></li>" +
+      "<li>Flush <span>five of one suit</span></li>" +
+      "<li>Straight <span>five in a row</span></li>" +
+      "<li>Three of a kind</li>" +
+      "<li>Two pair</li>" +
+      "<li>One pair</li>" +
+      "<li>High card</li>" +
+      "</ol>",
+
+    helpHTML:
+      "<p><b>Open-Face Chinese poker</b> (Pineapple). Build three rows that must rank " +
+      "<b>Bottom ≥ Middle ≥ Top</b> in poker strength, or you <b>FOUL</b>:</p>" +
+      "<ul><li><b>Bottom</b> (5 cards) — your <i>strongest</i> hand</li>" +
+      "<li><b>Middle</b> (5 cards)</li>" +
+      "<li><b>Top</b> (3 cards) — the weakest</li></ul>" +
+      "<p><b>The deal:</b> you're dealt 5 cards and place all five. Then four rounds of " +
+      "<b>deal 3 · place 2 · toss 1</b>. Placed cards are locked, and you place before seeing the next round — " +
+      "so chasing a big bottom can leave you unable to keep order. Everyone gets the same cards.</p>" +
+      "<p><b>Scoring — head-to-head + royalties:</b> your three rows are compared against everyone else who played " +
+      "the same deal — <b>+1 for each row you win, +3 for sweeping all three</b> — averaged across the field, plus " +
+      "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row. Your score is provisional and " +
+      "settles by the daily reset, so standings shift as more people play.</p>" +
+      "<table class='pt'>" +
+      "<tr><td><b>Top</b> · pair 66…AA</td><td>1…9</td></tr>" +
+      "<tr><td><b>Top</b> · trips 222…AAA</td><td>10…22</td></tr>" +
+      "<tr><td><b>Mid</b> · trips / straight / flush</td><td>2 / 4 / 8</td></tr>" +
+      "<tr><td><b>Mid</b> · full house / quads</td><td>12 / 20</td></tr>" +
+      "<tr><td><b>Mid</b> · str.flush / royal</td><td>30 / 50</td></tr>" +
+      "<tr><td><b>Bot</b> · straight / flush</td><td>2 / 4</td></tr>" +
+      "<tr><td><b>Bot</b> · full house / quads</td><td>6 / 10</td></tr>" +
+      "<tr><td><b>Bot</b> · str.flush / royal</td><td>15 / 25</td></tr>" +
+      "</table>",
+
+    RANKS: ["2","3","4","5","6","7","8","9","10","J","Q","K","A"],
+    SUITS: ["♣","♦","♥","♠"],
+    CAPS: [3, 5, 5],             // top, middle, bottom
+    FOUL: -6,
+
+    // Build today's 52-card deck deterministically (seeded shuffle).
+    makePuzzle: function (rng) {
+      var deck = [];
+      for (var s = 0; s < 4; s++) for (var r = 0; r < 13; r++) deck.push({ r: r, s: s });
+      for (var i = deck.length - 1; i > 0; i--) {
+        var j = Math.floor(rng() * (i + 1));
+        var t = deck[i]; deck[i] = deck[j]; deck[j] = t;
+      }
+      return { deck: deck };
+    },
+
+    // --- hand evaluation. Each returns [category, t1..t5] (length 6), so the
+    // SAME comparator works across 3-card and 5-card hands. category ladder:
+    // 0 high · 1 pair · 2 two-pair · 3 trips · 4 straight · 5 flush · 6 full · 7 quads · 8 straight-flush
+    pad: function (cat, ties) { var a = [cat]; for (var i = 0; i < 5; i++) a.push(ties[i] == null ? -1 : ties[i]); return a; },
+    eval3: function (cards) {
+      var rc = {}; cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; });
+      var by = Object.keys(rc).map(Number).sort(function (a, b) { return rc[b] - rc[a] || b - a; });
+      var f0 = rc[by[0]];
+      var ranks = cards.map(function (c) { return c.r; }).sort(function (a, b) { return b - a; });
+      if (f0 === 3) return this.pad(3, [by[0]]);
+      if (f0 === 2) return this.pad(1, [by[0], by[1]]);
+      return this.pad(0, ranks);
+    },
+    eval5: function (cards) {
+      var rc = {}, s0 = cards[0].s, flush = true;
+      cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; if (c.s !== s0) flush = false; });
+      var uniq = Object.keys(rc).map(Number).sort(function (a, b) { return a - b; });
+      var by = uniq.slice().sort(function (a, b) { return rc[b] - rc[a] || b - a; });
+      var freqs = by.map(function (r) { return rc[r]; });
+      var ranks = cards.map(function (c) { return c.r; }).sort(function (a, b) { return b - a; });
+      var straight = false, shigh = -1;
+      if (uniq.length === 5) {
+        if (uniq[4] - uniq[0] === 4) { straight = true; shigh = uniq[4]; }
+        if (uniq[0] === 0 && uniq[1] === 1 && uniq[2] === 2 && uniq[3] === 3 && uniq[4] === 12) { straight = true; shigh = 3; } // wheel
+      }
+      if (flush && straight) return this.pad(8, [shigh]);
+      if (freqs[0] === 4) return this.pad(7, [by[0], by[1]]);
+      if (freqs[0] === 3 && freqs[1] === 2) return this.pad(6, [by[0], by[1]]);
+      if (flush) return this.pad(5, ranks);
+      if (straight) return this.pad(4, [shigh]);
+      if (freqs[0] === 3) return this.pad(3, [by[0], by[1], by[2]]);
+      if (freqs[0] === 2 && freqs[1] === 2) return this.pad(2, [by[0], by[1], by[2]]);
+      if (freqs[0] === 2) return this.pad(1, [by[0], by[1], by[2], by[3]]);
+      return this.pad(0, ranks);
+    },
+    cmp: function (a, b) { for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] - b[i]; } return 0; },
+
+    royTop: function (e) { if (e[0] === 3) return e[1] + 10; if (e[0] === 1) return e[1] >= 4 ? e[1] - 3 : 0; return 0; },
+    royMid: function (e) {
+      switch (e[0]) { case 8: return e[1] === 12 ? 50 : 30; case 7: return 20; case 6: return 12;
+        case 5: return 8; case 4: return 4; case 3: return 2; default: return 0; }
+    },
+    royBot: function (e) {
+      switch (e[0]) { case 8: return e[1] === 12 ? 25 : 15; case 7: return 10; case 6: return 6;
+        case 5: return 4; case 4: return 2; default: return 0; }
+    },
+
+    // place is length-17 over the dealt cards: 0=top, 1=middle, 2=bottom, 3=discard.
+    rowsFromPlace: function (deck, place) {
+      var top = [], mid = [], bot = [];
+      for (var i = 0; i < place.length; i++) {
+        var c = deck[i];
+        if (place[i] === 0) top.push(c); else if (place[i] === 1) mid.push(c); else if (place[i] === 2) bot.push(c);
+      }
+      return { top: top, mid: mid, bot: bot };
+    },
+    // Score a completed board: foul (rows out of order) => FOUL, else sum of royalties.
+    scoreBoard: function (top, mid, bot) {
+      var et = this.eval3(top), em = this.eval5(mid), eb = this.eval5(bot);
+      var valid = this.cmp(eb, em) >= 0 && this.cmp(em, et) >= 0;
+      if (!valid) return { fouled: true, score: this.FOUL, et: et, em: em, eb: eb };
+      return { fouled: false, score: this.royTop(et) + this.royMid(em) + this.royBot(eb), et: et, em: em, eb: eb };
+    },
+
+    handName3: function (e) { if (e[0] === 3) return "Trips " + this.RANKS[e[1]]; if (e[0] === 1) return "Pair " + this.RANKS[e[1]]; return this.RANKS[e[1]] + " high"; },
+    handName5: function (e) {
+      var R = this.RANKS;
+      switch (e[0]) {
+        case 8: return e[1] === 12 ? "Royal flush" : "Straight flush";
+        case 7: return "Quads " + R[e[1]]; case 6: return "Full house"; case 5: return "Flush";
+        case 4: return "Straight"; case 3: return "Trips " + R[e[1]]; case 2: return "Two pair";
+        case 1: return "Pair " + R[e[1]]; default: return R[e[1]] + " high";
+      }
+    },
+    fmtScore: function (n) {
+      var r = Math.round(n * 10) / 10, a = Math.abs(r);
+      var s = (a === Math.floor(a)) ? String(a) : a.toFixed(1);
+      return r > 0 ? "+" + s : r < 0 ? "−" + s : "0";
+    },
+
+    // Head-to-head row points of board x vs board y (from x's view): +1 per row
+    // x wins, −1 per row it loses, +3 bonus for sweeping all three. A fouled
+    // board loses every row. Range −6..+6.
+    rowPoints: function (x, y) {
+      if (x.fouled && y.fouled) return 0;
+      if (x.fouled) return -6;
+      if (y.fouled) return 6;
+      var b = this.cmp(x.eb, y.eb), m = this.cmp(x.em, y.em), t = this.cmp(x.et, y.et);
+      var net = 0, xw = 0, yw = 0;
+      [b, m, t].forEach(function (c) { if (c > 0) { net++; xw++; } else if (c < 0) { net--; yw++; } });
+      if (xw === 3) net += 3; else if (yw === 3) net -= 3;
+      return net;
+    },
+    // Score the whole field for a day. list = [{addr, place}]. Each player's
+    // daily score = (average head-to-head row points vs everyone else) + royalties.
+    // Computed locally on every device from the shared boards, so it converges.
+    scoreField: function (deck, list) {
+      var self = this;
+      var info = list.map(function (e) {
+        var rows = self.rowsFromPlace(deck, e.place);
+        var et = self.eval3(rows.top), em = self.eval5(rows.mid), eb = self.eval5(rows.bot);
+        var fouled = !(self.cmp(eb, em) >= 0 && self.cmp(em, et) >= 0);
+        var roy = fouled ? 0 : self.royTop(et) + self.royMid(em) + self.royBot(eb);
+        return { addr: e.addr, et: et, em: em, eb: eb, fouled: fouled, roy: roy };
+      });
+      info.forEach(function (x) {
+        var total = 0, n = 0;
+        info.forEach(function (y) { if (x !== y) { n++; total += self.rowPoints(x, y); } });
+        x.rowAvg = n ? total / n : 0;
+        x.score = x.rowAvg + x.roy;
+      });
+      return info;
+    },
+
+    render: function (root, puzzle, ctx) {
+      var G = this, deck = puzzle.deck, R = G.RANKS, S = G.SUITS;
+      var NAMES = ["TOP", "MIDDLE", "BOTTOM"];
+
+      function isRed(c) { return c.s === 1 || c.s === 2; }
+      function bcard(c) { return '<div class="bcard ' + (isRed(c) ? "red" : "black") + '"><span class="brk">' + R[c.r] + '</span><span class="bsu">' + S[c.s] + '</span></div>'; }
+      function mcard(c) { return '<span class="mcard ' + (isRed(c) ? "red" : "black") + '">' + R[c.r] + '<span class="ms">' + S[c.s] + '</span></span>'; }
+      function rowLabel(cards, isTop) {
+        if (!cards.length) return "—";
+        if (cards.length === 5) return G.handName5(G.eval5(cards));
+        if (cards.length === 3 && isTop) return G.handName3(G.eval3(cards));
+        var rc = {}; cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; });
+        var trip = null, pair = null, np = 0;
+        Object.keys(rc).forEach(function (r) { if (rc[r] >= 3) trip = +r; else if (rc[r] === 2) { pair = +r; np++; } });
+        if (trip != null) return "Trips " + R[trip];
+        if (np >= 2) return "Two pair";
+        if (pair != null) return "Pair " + R[pair];
+        var hi = Math.max.apply(null, cards.map(function (c) { return c.r; }));
+        return R[hi] + " high";
+      }
+
+      // a static (non-interactive) board from three card arrays, with hand names + royalties
+      function resultBoard(rows, fouled) {
+        var ev = [G.eval3(rows.top), G.eval5(rows.mid), G.eval5(rows.bot)];
+        var roy = [G.royTop(ev[0]), G.royMid(ev[1]), G.royBot(ev[2])];
+        var nm = [G.handName3(ev[0]), G.handName5(ev[1]), G.handName5(ev[2])];
+        var arr = [rows.top, rows.mid, rows.bot];
+        var html = '<div class="board' + (fouled ? " fouled" : "") + '">';
+        for (var row = 0; row < 3; row++) {
+          html += '<div class="brow"><div class="rhead">' + NAMES[row] +
+            ' <span class="made">' + nm[row] + '</span>' + (!fouled && roy[row] ? ' <span class="roy">+' + roy[row] + '</span>' : "") + '</div>' +
+            '<div class="slots">' + arr[row].map(bcard).join("") + '</div></div>';
+        }
+        return html + '</div>';
+      }
+
+      // Result headline (the daily Score) + a plain-language breakdown of where
+      // it comes from and that it keeps moving as more people play today.
+      function outcomeBlock(score, roy, fouled, rank, n) {
+        var head = fouled
+          ? '<div class="instruct foul">Fouled — rows out of order</div>'
+          : '<div class="instruct ' + (score > 0 ? 'win' : '') + '">Score ' + G.fmtScore(score) + '</div>';
+        var detail;
+        if (n <= 1) {
+          detail = fouled
+            ? 'You’re the first to play today. A foul scores nothing — your rank against everyone else fills in as they play the same hand.'
+            : 'You’re the first to play today (royalties +' + roy + '). Your rank against everyone else fills in as they play the same hand.';
+        } else if (fouled) {
+          detail = 'A foul loses every row · #' + rank + ' of ' + n + ' today · keeps updating as more people play.';
+        } else {
+          detail = '#' + rank + ' of ' + n + ' today · rows vs the group ' + G.fmtScore(Math.round((score - roy) * 10) / 10) +
+            ', royalties +' + roy + ' · keeps updating as more people play.';
+        }
+        return head + '<div class="subhint">' + detail + '</div>';
+      }
+
+      // ---------- read-only view (past day, or already played today) ----------
+      if (!ctx.playable) {
+        var prev = ctx.previous, dayRows = ctx.dayRows || [];
+        var selfRow = null, rank = 0;
+        dayRows.forEach(function (r, i) { if (r.addr === ctx.self) { selfRow = r; rank = i + 1; } });
+        if (prev && prev.place) {
+          var rows = G.rowsFromPlace(deck, prev.place);
+          var res = G.scoreBoard(rows.top, rows.mid, rows.bot);
+          var score = selfRow ? selfRow.score : (res.fouled ? G.FOUL : res.score);
+          var roy = selfRow ? selfRow.roy : (res.fouled ? 0 : res.score);
+          var fouled = selfRow ? selfRow.fouled : res.fouled;
+          root.innerHTML = '<div class="ofc">' + resultBoard(rows, res.fouled) +
+            outcomeBlock(score, roy, fouled, rank, dayRows.length) + '</div>';
+        } else if (prev) {
+          var line = dayRows.length > 1
+            ? 'Score ' + G.fmtScore(selfRow ? selfRow.score : 0) + ' · #' + rank + ' of ' + dayRows.length + ' today · keeps updating as more people play.'
+            : 'Your rank fills in as others play today’s hand.';
+          root.innerHTML = '<div class="ofc"><div class="instruct">Played on another device</div><div class="subhint">' + line + '</div></div>';
+        } else {
+          root.innerHTML = '<div class="ofc"><div class="dealprev">' + deck.slice(0, 17).map(bcard).join("") + '</div>' +
+            '<div class="subhint">' + (ctx.isToday ? "Loading…" : "You didn’t play this day — see the day’s results below.") + '</div></div>';
+        }
+        return;
+      }
+
+      // ---------- playable: Pineapple — place 5, then (deal 3, place 2, toss 1) ×4 ----------
+      // Cards are placed within "reveals" (the opening 5, then each round's 3). You can
+      // UNDO any placement inside the current reveal, but tapping to deal the next reveal
+      // commits it — you can't move cards after seeing the cards that come next.
+      var dealt = deck.slice(0, 17);
+      var place = []; for (var z = 0; z < 17; z++) place.push(null);  // 0/1/2 row, 3 discard, null pending
+      var phase = "opening", roundIdx = 0, selIdx = null, revealPlaced = [];
+
+      function revealIdx() { if (phase === "opening") return [0, 1, 2, 3, 4]; var b = 5 + 3 * roundIdx; return [b, b + 1, b + 2]; }
+      function need() { return phase === "opening" ? 5 : 2; }
+      function complete() { return revealPlaced.length >= need(); }
+      function counts() { var c = [0, 0, 0]; for (var i = 0; i < 17; i++) if (place[i] === 0 || place[i] === 1 || place[i] === 2) c[place[i]]++; return c; }
+      function rowCards(row) { var a = []; for (var i = 0; i < 17; i++) if (place[i] === row) a.push(dealt[i]); return a; }
+      function pending() { return revealIdx().filter(function (i) { return place[i] == null; }); }
+
+      function boardRow(row) {
+        var cap = G.CAPS[row], cs = rowCards(row), full = cs.length >= cap;
+        var canPlace = selIdx != null && !full && !complete();
+        var slots = "";
+        for (var i = 0; i < cap; i++) slots += i < cs.length ? bcard(cs[i]) : '<div class="slot"></div>';
+        return '<div class="brow' + (canPlace ? " tappable" : "") + (full ? " full" : "") + '"' + (canPlace ? ' data-row="' + row + '"' : "") + '>' +
+          '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made">' + rowLabel(cs, row === 0) + '</span></div>' +
+          '<div class="slots">' + slots + '</div></div>';
+      }
+
+      function paint() {
+        var done = complete(), pend = pending();
+        // pending cards are selectable until the reveal is complete; after that the
+        // leftover (a round's third card) is shown marked as the toss.
+        var tray = pend.map(function (i) {
+          return '<div class="trayc' + (selIdx === i ? " sel" : "") + (done ? " toss" : "") + '"' + (done ? "" : ' data-sel="' + i + '"') + '>' +
+            bcard(dealt[i]) + (done ? '<span class="tosstag">TOSS</span>' : "") + '</div>';
+        }).join("");
+        var disc = []; for (var i = 0; i < 17; i++) if (place[i] === 3) disc.push(dealt[i]);
+        var lastRound = (phase === "round" && roundIdx === 3);
+        var label = phase === "opening" ? "OPENING — place all 5" : "ROUND " + (roundIdx + 1) + " of 4 — keep 2, toss 1";
+        var instr;
+        if (done) instr = phase === "opening" ? "Opening set — undo to rearrange, or deal the first round."
+          : lastRound ? "Last cards placed — undo to change, or submit." : "Undo to rearrange, or deal the next round.";
+        else instr = selIdx == null ? (phase === "opening" ? "Pick a card, then tap a row" : "Pick which 2 of 3 to keep") : "Tap a row to place it";
+        var cnt = counts();
+        var proceedLabel = phase === "opening" ? "Deal round 1 ▸" : lastRound ? "Submit board ✓" : "Deal round " + (roundIdx + 2) + " ▸";
+        root.innerHTML = '<div class="ofc">' +
+          '<div class="board">' + boardRow(0) + boardRow(1) + boardRow(2) + '</div>' +
+          '<div class="toplace"><div class="curlabel">' + label + '</div>' +
+            '<div class="tray">' + tray + '</div>' +
+            (disc.length ? '<div class="discpile">tossed&nbsp;' + disc.map(mcard).join("") + '</div>' : "") +
+          '</div>' +
+          '<div class="instruct">' + instr + '</div>' +
+          '<div class="subhint"><span class="progress">' + (cnt[0] + cnt[1] + cnt[2]) + ' / 13 placed</span> · keep Bottom ≥ Middle ≥ Top, or you foul.</div>' +
+          '<div class="actions">' +
+            '<button class="btn btn-ghost" id="undo"' + (revealPlaced.length ? "" : " disabled") + '>↶ Undo</button>' +
+            (done ? '<button class="btn btn-primary" id="proceed">' + proceedLabel + '</button>' : "") +
+          '</div></div>';
+        root.querySelectorAll(".trayc[data-sel]").forEach(function (el) { el.addEventListener("click", function () { selIdx = +el.getAttribute("data-sel"); paint(); }); });
+        root.querySelectorAll(".brow.tappable").forEach(function (el) { el.addEventListener("click", function () { placeSel(+el.getAttribute("data-row")); }); });
+        var u = root.querySelector("#undo"); if (u) u.addEventListener("click", undo);
+        var pr = root.querySelector("#proceed"); if (pr) pr.addEventListener("click", proceed);
+      }
+      function placeSel(row) {
+        if (selIdx == null || complete() || counts()[row] >= G.CAPS[row]) return;
+        place[selIdx] = row; revealPlaced.push(selIdx); selIdx = null; paint();
+      }
+      function undo() {
+        if (!revealPlaced.length) return;
+        var i = revealPlaced.pop(); place[i] = null; selIdx = i;   // re-select the card you took back
+        paint();
+      }
+      function proceed() {
+        if (!complete()) return;
+        if (phase === "opening") { phase = "round"; roundIdx = 0; revealPlaced = []; selIdx = null; paint(); return; }
+        pending().forEach(function (i) { place[i] = 3; });          // commit the toss
+        revealPlaced = []; selIdx = null;
+        if (roundIdx === 3) { finish(); return; }
+        roundIdx++; paint();
+      }
+      function finish() {
+        var rows = { top: rowCards(0), mid: rowCards(1), bot: rowCards(2) };
+        var res = G.scoreBoard(rows.top, rows.mid, rows.bot);
+        ctx.toast(res.fouled ? "Fouled — rows out of order" : "Royalties +" + res.score);
+        ctx.submit({ place: place.slice() });
+      }
+      paint();
+    },
+
+    // Daily-leaderboard cell: head-to-head score, or FOUL.
+    label: function (r) { return r.fouled ? "FOUL" : GAME.fmtScore(r.score); },
+
+    // "how they built it" strip: each row with its hand + royalty, then the
+    // score breakdown — head-to-head rows vs the field PLUS royalties = score.
+    playStrip: function (deck, r) {
+      if (!r.place || !deck) return "";
+      var rows = this.rowsFromPlace(deck, r.place);
+      function miniRow(cards) {
+        return '<span class="minihand">' + cards.map(function (c) {
+          var red = (c.s === 1 || c.s === 2);
+          return '<span class="mcard ' + (red ? "red" : "black") + '">' + GAME.RANKS[c.r] + '<span class="ms">' + GAME.SUITS[c.s] + '</span></span>';
+        }).join("") + '</span>';
+      }
+      var ev = [this.eval3(rows.top), this.eval5(rows.mid), this.eval5(rows.bot)];
+      var roy = [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
+      var nm = [this.handName3(ev[0]), this.handName5(ev[1]), this.handName5(ev[2])];
+      var arr = [rows.top, rows.mid, rows.bot];
+      var rowsHTML = arr.map(function (cs, i) {
+        return '<div class="prow">' + miniRow(cs) +
+          '<span class="pinfo">' + esc(nm[i]) + (roy[i] && !r.fouled ? ' <b>+' + roy[i] + '</b>' : "") + '</span></div>';
+      }).join("");
+      var calc;
+      if (r.fouled) calc = '<div class="pcalc foul">FOUL — loses every row · 0 royalties</div>';
+      else {
+        var rowAvg = Math.round((r.score - r.roy) * 10) / 10;
+        calc = '<div class="pcalc">rows vs field ' + GAME.fmtScore(rowAvg) + ' + royalties +' + r.roy +
+          ' = <b>' + GAME.fmtScore(r.score) + '</b></div>';
+      }
+      return '<div class="play">' + rowsHTML + calc + '</div>';
+    },
+
+    // OVERALL "Avg" column: average daily score (signed, 1 decimal).
+    formatAvg: function (mean) { return GAME.fmtScore(Math.round(mean * 10) / 10); },
+
+    scoreHelp: "Score = head-to-head row wins vs the field (+1 per row, +3 sweep), averaged, plus royalty bonuses. " +
+      "A foul loses every row. 🏆 = days you topped · 🔥 = days played in a row."
+  };
+  // ===================================================================
+  // ===== END GAME ADAPTER. Generic framework below. ==================
+  // ===================================================================
+
+
+  // ---- dev-only webxdc stub ------------------------------------------
+  // Only used when webxdc.js did NOT load (i.e. opened in a plain browser).
+  // In a real host (Delta Chat) webxdc.js sets window.webxdc, so this is skipped.
+  if (!window.webxdc) {
+    window.webxdc = (function () {
+      var KEY = "__daily_ofc_sim__", listener = null;
+      function read() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; } }
+      function write(a) { localStorage.setItem(KEY, JSON.stringify(a)); }
+      return {
+        selfAddr: "you@local.dev", selfName: "You",
+        sendUpdate: function (u) {
+          var all = read(), serial = all.length + 1;
+          all.push({ payload: u.payload, info: u.info, summary: u.summary, document: u.document, notify: u.notify, serial: serial, max_serial: serial });
+          all.forEach(function (it) { it.max_serial = serial; });
+          write(all);
+          if (listener) try { listener(all[all.length - 1]); } catch (e) { console.error(e); }
+        },
+        setUpdateListener: function (cb, serial) {
+          listener = cb; var all = read(), start = serial || 0;
+          return Promise.resolve().then(function () { for (var i = start; i < all.length; i++) cb(all[i]); });
+        },
+        joinRealtimeChannel: function () {
+          return { setListener: function () {}, send: function () {}, leave: function () {} };
+        }
+      };
+    })();
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var xdc = window.webxdc;
+
+  function mulberry32(a) {
+    return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+
+  // ---- timezone-aware day numbering ----------------------------------
+  function dayNumberInTz(tz) {
+    try {
+      var o = {};
+      new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
+        .formatToParts(new Date()).forEach(function (p) { o[p.type] = p.value; });
+      return Math.floor(Date.UTC(+o.year, +o.month - 1, +o.day) / 86400000);
+    } catch (e) { return Math.floor(Date.now() / 86400000); }
+  }
+  function msToNextReset(tz) {
+    try {
+      var o = {};
+      new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+        .formatToParts(new Date()).forEach(function (p) { o[p.type] = p.value; });
+      return 86400000 - (((+o.hour % 24) * 3600 + (+o.minute) * 60 + (+o.second)) * 1000 + (Date.now() % 1000));
+    } catch (e) { var n = new Date(); return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1) - n.getTime(); }
+  }
+  function tzOffsetLabel(tz) {
+    try {
+      var p = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+        .formatToParts(new Date()).filter(function (x) { return x.type === "timeZoneName"; })[0];
+      return p ? p.value : "";
+    } catch (e) { return ""; }
+  }
+
+  // ---- state ---------------------------------------------------------
+  var TZ = null, TODAY = null, instanceSeed = null, firstDay = null, viewDay = null, gameStarted = false;
+  var results = {};
+  var MINE_KEY = "daily-ofc-mine-v1";
+  var mine = loadMine();
+
+  function loadMine() { try { return JSON.parse(localStorage.getItem(MINE_KEY)) || { days: {} }; } catch (e) { return { days: {} }; } }
+  function saveMine() { localStorage.setItem(MINE_KEY, JSON.stringify(mine)); }
+  function selfAddr() { return (xdc && xdc.selfAddr) || "self"; }
+  function selfName() { return (xdc && xdc.selfName) || "Someone"; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function lbl(r) { return GAME.label ? GAME.label(r) : r.display; }
+
+  // ---- shared results + leaderboards ---------------------------------
+  function recordResult(addr, name, day, res) {
+    var r = results[addr] || (results[addr] = { name: name, days: {} });
+    if (name) r.name = name;
+    if (!r.days[day]) r.days[day] = res;
+  }
+  // Head-to-head scoring: every player's board for the day is compared against
+  // the whole field (via GAME.scoreField) and ranked. Recomputed locally on
+  // each device, so all peers converge once they've synced the same boards.
+  function dailyRows(day) {
+    var list = [];
+    for (var a in results) { var d = results[a].days[day]; if (d && d.place) list.push({ addr: a, name: results[a].name, place: d.place }); }
+    if (!list.length) return [];
+    var deck = GAME.makePuzzle(rngForDay(day), day).deck;
+    var info = GAME.scoreField(deck, list);
+    var rows = list.map(function (e, i) {
+      return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled, roy: info[i].roy };
+    });
+    rows.sort(function (x, y) { return y.score - x.score; });
+    return rows;
+  }
+  function playStreak(rec) { var s = 0, d = TODAY; if (!rec.days[d]) d--; while (d >= firstDay && rec.days[d]) { s++; d--; } return s; }
+  function overallRows() {
+    var allDays = {};
+    for (var a in results) for (var dy in results[a].days) allDays[dy] = 1;
+    var acc = {};
+    function A(addr, name) { var x = acc[addr] || (acc[addr] = { addr: addr, name: name, played: 0, wins: 0, sum: 0, trophies: 0 }); if (name) x.name = name; return x; }
+    Object.keys(allDays).forEach(function (dy) {
+      var rows = dailyRows(+dy);
+      rows.forEach(function (r, i) { var x = A(r.addr, r.name); x.played++; x.sum += r.score; if (!r.fouled) x.wins++; if (i === 0) x.trophies++; });
+    });
+    var out = [];
+    for (var ad in acc) {
+      var x = acc[ad];
+      out.push({ addr: ad, name: x.name, played: x.played, wins: x.wins, avg: x.played ? x.sum / x.played : 0,
+        trophies: x.trophies, streak: playStreak(results[ad]), pts: Math.round(x.sum * 10) / 10 });
+    }
+    out.sort(function (a, b) { return b.pts - a.pts || b.avg - a.avg || b.played - a.played; });
+    return out;
+  }
+
+  // ---- labels / dates ------------------------------------------------
+  function puzzleIndex(day) { return day - firstDay + 1; }
+  function dayLabel(day) {
+    var dt = new Date(day * 86400000);
+    var s = dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    return day === TODAY ? s + ' · <span class="today">today</span>' : s;
+  }
+
+  // ---- the puzzle for a day ------------------------------------------
+  function rngForDay(day) { return mulberry32((instanceSeed ^ Math.imul(day, 0x9E3779B1)) | 0); }
+
+  function goToDay(day) {
+    viewDay = Math.max(firstDay, Math.min(TODAY, day));
+    var puzzle = GAME.makePuzzle(rngForDay(viewDay), viewDay);
+    var stage = $("stage"); stage.innerHTML = "";
+    GAME.render(stage, puzzle, {
+      day: viewDay,
+      isToday: viewDay === TODAY,
+      playable: viewDay === TODAY && !mine.days[viewDay],
+      previous: mine.days[viewDay] || null,
+      self: selfAddr(),
+      dayRows: dailyRows(viewDay),
+      submit: function (res) { submitResult(viewDay, res); },
+      toast: toast
+    });
+    refreshView();
+    renderDaily();
+  }
+  function refreshView() {
+    $("puzzleNo").textContent = "#" + puzzleIndex(viewDay);
+    $("dateLabel").innerHTML = dayLabel(viewDay);
+    $("navPrev").disabled = (viewDay <= firstDay);
+    $("navNext").disabled = (viewDay >= TODAY);
+  }
+  function submitResult(day, res) {
+    if (day !== TODAY || mine.days[day]) return;
+    mine.days[day] = res; saveMine();
+    broadcastResult(day, res);
+    goToDay(day);
+  }
+
+  // ---- leaderboard rendering -----------------------------------------
+  function medal(i) { return i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : ""; }
+  function renderDaily() {
+    var rows = dailyRows(viewDay), me = selfAddr();
+    $("dailyDate").innerHTML = (viewDay === TODAY ? "Today" : dayLabel(viewDay)) + " · results";
+    $("lbCount").textContent = rows.length ? "(" + rows.length + ")" : "";
+    if (!rows.length) { $("lb").innerHTML = '<div class="lbempty">No results yet for this day.</div>'; return; }
+    // Hide everyone's boards + scores for TODAY until you've played it — otherwise
+    // you'd see how to build the same deal before your own attempt. Show only who's in.
+    if (viewDay === TODAY && !mine.days[viewDay]) {
+      var names = rows.map(function (r) { return esc(r.name); });
+      var who = (names.length === 1 ? names[0] + " has played" :
+        names.slice(0, 6).join(", ") + (names.length > 6 ? " +" + (names.length - 6) + " more" : "") + " have played");
+      $("lb").innerHTML = '<div class="lblocked"><div class="lk">🔒 Boards hidden until you play</div>' +
+        '<div class="who">' + who + ' today — play your hand to reveal everyone’s boards and the standings.</div></div>';
+      return;
+    }
+    var deck = gameStarted ? GAME.makePuzzle(rngForDay(viewDay), viewDay).deck : null;
+    $("lb").innerHTML = rows.map(function (r, i) {
+      var mineCls = r.addr === me ? " me" : "";
+      var strip = GAME.playStrip ? GAME.playStrip(deck, r) : "";
+      return '<div class="lbrow' + mineCls + '"><span class="rank">' + (medal(i) || (i + 1)) + '</span>' +
+        '<span class="nm">' + esc(r.name) + (mineCls ? " (you)" : "") + '</span>' +
+        '<span class="sc' + (r.fouled ? " foul" : "") + '">' + esc(lbl(r)) + '</span>' + strip + '</div>';
+    }).join("");
+  }
+  function renderOverall() {
+    var rows = overallRows(), me = selfAddr();
+    if (!rows.length) { $("overall").innerHTML = '<div class="lbempty">No results yet.</div>'; $("scoreHelp").textContent = ""; return; }
+    var html = '<table class="otable"><thead><tr><th class="l">#</th><th class="l">Player</th>' +
+      '<th>Clean</th><th>Avg</th><th>🏆</th><th>🔥</th><th>Score</th></tr></thead><tbody>';
+    rows.forEach(function (r, i) {
+      var avg = GAME.formatAvg ? GAME.formatAvg(r.avg) : r.avg.toFixed(1);
+      html += '<tr' + (r.addr === me ? ' class="me"' : "") + '>' +
+        '<td class="l">' + (i + 1) + '</td>' +
+        '<td class="l pnm">' + esc(r.name) + (r.addr === me ? " (you)" : "") + '</td>' +
+        '<td>' + r.wins + "/" + r.played + '</td>' +
+        '<td>' + avg + '</td>' +
+        '<td>' + (r.trophies || "·") + '</td>' +
+        '<td>' + (r.streak || "·") + '</td>' +
+        '<td class="pts">' + r.pts + '</td></tr>';
+    });
+    $("overall").innerHTML = html + "</tbody></table>";
+    $("scoreHelp").textContent = GAME.scoreHelp || "🏆 = days you topped the board · 🔥 = current daily streak.";
+  }
+  function overallOpen() { return $("overallScreen").classList.contains("show"); }
+  function refreshBoards() { renderDaily(); if (overallOpen()) renderOverall(); }
+
+  // ---- chat sharing: info (always) + notify (on overtaking #1) -------
+  function chatSummary(day) {
+    var d = dailyRows(day), o = overallRows(), s;
+    s = d.length ? (d[0].name + " · " + lbl(d[0]) + " · " + d.length + (d.length === 1 ? " player" : " players")) : "No results yet";
+    if (o.length) s += " | Overall: " + o[0].name + " (" + o[0].pts + " pts)";
+    return s;
+  }
+  function broadcastResult(day, res) {
+    var name = selfName(), addr = selfAddr();
+    // Head-to-head is relative, so recompute the standings before and after
+    // adding our board to detect whether we genuinely took the lead.
+    var priorLeader = (function () { var p = dailyRows(day); return p.length ? p[0] : null; })();
+    recordResult(addr, name, day, res); refreshBoards();
+    var nowRows = dailyRows(day), nowLeader = nowRows.length ? nowRows[0] : null;
+    var tookLead = nowLeader && nowLeader.addr === addr && nowRows.length > 1 && (!priorLeader || priorLeader.addr !== addr);
+    if (xdc && xdc.sendUpdate) {
+      // board quality for the silent chat line (stable, unlike the relative score)
+      var deck = GAME.makePuzzle(rngForDay(day), day).deck, rs = GAME.rowsFromPlace(deck, res.place);
+      var sb = GAME.scoreBoard(rs.top, rs.mid, rs.bot);
+      var quality = sb.fouled ? "fouled" : "+" + sb.score + " royalties";
+      var update = {
+        payload: { type: "result", day: day, addr: addr, name: name, place: res.place },
+        info: name + " " + (GAME.verb || "played") + " #" + puzzleIndex(day) + " — " + quality,
+        document: "#" + puzzleIndex(day),
+        summary: chatSummary(day)
+      };
+      // Taking the #1 spot REPLACES the silent info line with a celebratory one
+      // (so it shows in the chat) and fires a push notification. The notify field
+      // alone is only a push — the info field is what posts the visible message.
+      if (tookLead) {
+        var leadText = "🏆 " + name + " is now leading " + GAME.name + " #" + puzzleIndex(day) + " — " + GAME.fmtScore(nowLeader.score);
+        update.info = leadText;
+        update.notify = { "*": leadText };
+      }
+      xdc.sendUpdate(update, "");
+    }
+  }
+
+  // ---- updates -------------------------------------------------------
+  function onUpdate(u) {
+    var p = u && u.payload; if (!p) return;
+    if (p.type === "config") {
+      if (instanceSeed === null) startOnce(p.seed, p.startDay, p.tz);
+    } else if (p.type === "result") {
+      recordResult(p.addr, p.name, p.day, { place: p.place });
+      var adopted = false;
+      if (p.addr === selfAddr() && !mine.days[p.day]) {
+        mine.days[p.day] = { place: p.place };
+        saveMine();
+        adopted = true;
+      }
+      if (gameStarted) {
+        // Re-render the stage when a result lands on the day we're viewing AND
+        // that day is settled for us (already played) — so the head-to-head
+        // standing updates live. Never re-render while a hand is in progress.
+        if (p.day === viewDay && mine.days[viewDay]) goToDay(viewDay);
+        refreshBoards();
+      }
+    }
+  }
+
+  // ---- tabs / overall full screen ------------------------------------
+  function openOverall() {
+    $("ovPuzzleNo").textContent = $("puzzleNo").textContent;
+    renderOverall();
+    $("overallScreen").classList.add("show");
+    $("tabDaily").classList.remove("active"); $("tabOverall").classList.add("active");
+    window.scrollTo(0, 0);
+  }
+  function closeOverall() {
+    $("overallScreen").classList.remove("show");
+    $("tabOverall").classList.remove("active"); $("tabDaily").classList.add("active");
+  }
+  $("tabOverall").addEventListener("click", openOverall);
+  $("tabDaily").addEventListener("click", closeOverall);
+  $("ovTabDaily").addEventListener("click", closeOverall);
+  $("ovClose").addEventListener("click", closeOverall);
+  $("navPrev").addEventListener("click", function () { if (gameStarted) goToDay(viewDay - 1); });
+  $("navNext").addEventListener("click", function () { if (gameStarted) goToDay(viewDay + 1); });
+
+  // ---- help modal ----------------------------------------------------
+  function openOv(id) { $(id).classList.add("show"); }
+  function closeOv(el) { el.classList.remove("show"); }
+  document.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", function () { closeOv(b.closest(".overlay")); }); });
+  document.querySelectorAll(".overlay").forEach(function (o) { o.addEventListener("click", function (e) { if (e.target === o) closeOv(o); }); });
+  $("btnHelp").addEventListener("click", function () { openOv("ovHelp"); });
+
+  // ---- first-opener setup (pick the reset timezone) ------------------
+  function buildTzOptions() {
+    var sel = $("tzSelect"), userTz = "UTC";
+    try { userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) {}
+    var common = ["UTC", "America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",
+      "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Athens",
+      "Africa/Johannesburg", "Asia/Kolkata", "Asia/Dubai", "Asia/Shanghai", "Asia/Tokyo",
+      "Australia/Sydney", "Pacific/Auckland"];
+    function opt(tz, label) {
+      var off = tzOffsetLabel(tz), o = document.createElement("option");
+      o.value = tz; o.textContent = label + (off ? " (" + off + ")" : "");
+      sel.appendChild(o);
+    }
+    opt(userTz, "Your timezone — " + userTz.replace(/_/g, " ").split("/").pop());
+    common.forEach(function (tz) { if (tz !== userTz) opt(tz, tz.replace(/_/g, " ")); });
+    sel.value = userTz;
+  }
+  function updateTzHint() {
+    var tz = $("tzSelect").value;
+    var next = new Date(Date.now() + msToNextReset(tz));
+    var lab = next.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+    $("tzHint").textContent = "Puzzles reset at midnight " + tz.replace(/_/g, " ") + " — next one " + lab + " your time.";
+  }
+  function showSetup() { if (!$("tzSelect").options.length) buildTzOptions(); updateTzHint(); $("setupScreen").classList.add("show"); }
+  function hideSetup() { $("setupScreen").classList.remove("show"); }
+  $("tzSelect").addEventListener("change", updateTzHint);
+  $("startDaily").addEventListener("click", function () {
+    var tz = $("tzSelect").value, seed = (Math.random() * 0x7fffffff) | 0, sd = dayNumberInTz(tz);
+    // The first opener picks the timezone once and broadcasts it as `config`;
+    // everyone adopts the earliest one (lowest serial). We also set the bubble's
+    // document (puzzle #) and summary here so the chat shows them right after setup.
+    if (xdc && xdc.sendUpdate) {
+      xdc.sendUpdate({
+        payload: { type: "config", seed: seed, tz: tz, startDay: sd },
+        document: "#1",
+        summary: "No plays yet — open it and build today’s board!"
+      }, "");
+    }
+    startOnce(seed, sd, tz);
+  });
+
+  // ---- live presence (who's in the app right now) --------------------
+  var presence = {}, rtChannel = null;
+  function startPresence() {
+    if (rtChannel || !xdc || !xdc.joinRealtimeChannel) return;
+    try { rtChannel = xdc.joinRealtimeChannel(); } catch (e) { return; }
+    var enc = new TextEncoder(), dec = new TextDecoder();
+    rtChannel.setListener(function (bytes) {
+      try {
+        var m = JSON.parse(dec.decode(bytes));
+        if (m && m.t === "p" && m.a !== selfAddr()) { presence[m.a] = { name: m.n, last: Date.now() }; renderPresence(); }
+      } catch (e) {}
+    });
+    function ping() { try { rtChannel.send(enc.encode(JSON.stringify({ t: "p", a: selfAddr(), n: selfName() }))); } catch (e) {} }
+    ping();
+    setInterval(ping, 4000);
+    setInterval(function () {
+      var now = Date.now(), changed = false;
+      for (var a in presence) if (now - presence[a].last > 12000) { delete presence[a]; changed = true; }
+      if (changed) renderPresence();
+    }, 3000);
+  }
+  function renderPresence() {
+    var el = $("presence"); if (!el) return;
+    var names = []; for (var a in presence) names.push(esc(presence[a].name));
+    if (!names.length) { el.style.display = "none"; el.textContent = ""; return; }
+    el.style.display = "";
+    el.innerHTML = '<span class="dot"></span>' + presencePhrase(names);
+  }
+  function presencePhrase(n) {
+    if (n.length === 1) return n[0] + " is here";
+    if (n.length === 2) return n[0] + " and " + n[1] + " are here";
+    if (n.length === 3) return n[0] + ", " + n[1] + ", and " + n[2] + " are here";
+    return n[0] + ", " + n[1] + ", and " + (n.length - 2) + " others are here";
+  }
+
+  // ---- boot ----------------------------------------------------------
+  function startOnce(seed, startDay, tz) {
+    if (gameStarted) return;
+    gameStarted = true;
+    instanceSeed = seed; TZ = tz || "UTC"; TODAY = dayNumberInTz(TZ);
+    firstDay = Math.min(startDay == null ? TODAY : startDay, TODAY);
+    hideSetup();
+    goToDay(TODAY);
+    refreshBoards();
+    tick();
+    startPresence();
+  }
+
+  $("appName").textContent = $("ovName").textContent = $("setupName").textContent = $("setupTitle").textContent = GAME.name;
+  document.title = GAME.name;
+  $("helpTitle").textContent = "How to play";
+  $("handRank").innerHTML = GAME.handRankHTML || "";
+  $("helpBody").innerHTML = GAME.helpHTML || "";
+
+  if (xdc && xdc.setUpdateListener) {
+    xdc.setUpdateListener(onUpdate, 0).then(function () {
+      if (instanceSeed === null) { showSetup(); return; }
+      if (gameStarted && viewDay !== null) goToDay(viewDay);
+    });
+  } else { showSetup(); }
+
+  // ---- countdown -----------------------------------------------------
+  function pad2(x) { return (x < 10 ? "0" : "") + x; }
+  function tick() {
+    if (!TZ) { $("cd").textContent = "—"; return; }
+    var ms = msToNextReset(TZ);
+    $("cd").textContent = pad2(Math.floor(ms / 3600000)) + ":" + pad2(Math.floor(ms % 3600000 / 60000)) + ":" + pad2(Math.floor(ms % 60000 / 1000));
+  }
+  setInterval(tick, 1000);
+
+  // ---- toast ---------------------------------------------------------
+  var toastT;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove("show"); }, 2200);
+  }
+})();
+</script>
+</body>
+</html>
