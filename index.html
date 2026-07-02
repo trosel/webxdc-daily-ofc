@@ -88,12 +88,16 @@
   .mcard .ms { font-size:10px; }
   .mplay-meta { font-size:11px; color:var(--muted); margin-top:1px; }
   .mplay-meta.foul { color:var(--bad); font-weight:700; }
-  .prow { display:flex; align-items:center; gap:7px; }
-  .prow .pinfo { font-size:10.5px; color:var(--muted); white-space:nowrap; }
-  .prow .pinfo b { color:var(--accent-dark); }
+  .prow { display:flex; align-items:center; gap:8px; width:100%; }
+  .prow .pname { flex:1 1 auto; font-size:11px; color:var(--ink); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prow .pcmp { flex:0 0 auto; font-size:10px; color:var(--muted); white-space:nowrap; }
+  .prow .pcmp.foul { color:var(--bad); }
+  .prow .psub { flex:0 0 auto; width:44px; text-align:right; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--ink); }
+  .prow.xtra .pname { color:var(--muted); font-weight:600; font-style:italic; }
   .pcalc { font-size:11px; color:var(--muted); margin-top:3px; }
   .pcalc b { color:var(--ink); font-weight:800; }
   .pcalc.foul { color:var(--bad); font-weight:700; }
+  .pcalc.flr { color:var(--muted); font-style:italic; }
   /* locked daily board (hidden until you've played today) */
   .lblocked { padding:14px 6px; text-align:center; }
   .lblocked .lk { font-size:14px; font-weight:700; }
@@ -339,14 +343,13 @@
       "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row. Your score is provisional and " +
       "settles by the daily reset, so standings shift as more people play.</p>" +
       "<table class='pt'>" +
-      "<tr><td><b>Top</b> · pair 66…AA</td><td>1…9</td></tr>" +
-      "<tr><td><b>Top</b> · trips 222…AAA</td><td>10…22</td></tr>" +
-      "<tr><td><b>Mid</b> · trips / straight / flush</td><td>2 / 4 / 8</td></tr>" +
-      "<tr><td><b>Mid</b> · full house / quads</td><td>12 / 20</td></tr>" +
-      "<tr><td><b>Mid</b> · str.flush / royal</td><td>30 / 50</td></tr>" +
-      "<tr><td><b>Bot</b> · straight / flush</td><td>2 / 4</td></tr>" +
-      "<tr><td><b>Bot</b> · full house / quads</td><td>6 / 10</td></tr>" +
-      "<tr><td><b>Bot</b> · str.flush / royal</td><td>15 / 25</td></tr>" +
+      "<tr><td><b>Top</b> · pair TT→AA (½-steps) / trips</td><td>1→3 / 4→6</td></tr>" +
+      "<tr><td><b>Mid</b> · trips / straight / flush</td><td>1 / 1.5 / 2</td></tr>" +
+      "<tr><td><b>Mid</b> · full house / quads</td><td>3 / 4</td></tr>" +
+      "<tr><td><b>Mid</b> · str.flush / royal</td><td>5 / 6</td></tr>" +
+      "<tr><td><b>Bot</b> · straight / flush</td><td>0.5 / 1</td></tr>" +
+      "<tr><td><b>Bot</b> · full house / quads</td><td>1.5 / 3</td></tr>" +
+      "<tr><td><b>Bot</b> · str.flush / royal</td><td>4 / 5</td></tr>" +
       "</table>",
 
     RANKS: ["2","3","4","5","6","7","8","9","10","J","Q","K","A"],
@@ -402,14 +405,26 @@
     },
     cmp: function (a, b) { for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] - b[i]; } return 0; },
 
-    royTop: function (e) { if (e[0] === 3) return e[1] + 10; if (e[0] === 1) return e[1] >= 4 ? e[1] - 3 : 0; return 0; },
+    // Compressed but GRADED royalties: everyday hands stay in the head-to-head
+    // band (~±6) so they don't swamp the row-by-row contest, while each hand tier
+    // is still rewarded distinctly — so reaching a higher hand always pays more.
+    // Half-point steps keep the ceiling at ~6 (consistent with the fractional
+    // row scores). Bottom pays notably less than middle for the "middle-loadable"
+    // hands (straight/flush/full) to reward the harder middle placement and pull
+    // boards apart on solvable deals; monster bottoms (quads+) keep their jackpot
+    // since you can't realistically middle-load them anyway.
+    royTop: function (e) {
+      if (e[0] === 3) return 4 + Math.floor(e[1] / 6);             // trips up top (rare): 4→6 by rank
+      if (e[0] === 1) return e[1] >= 8 ? (e[1] - 8) * 0.5 + 1 : 0; // pair TT..AA: 1, 1.5, 2, 2.5, 3
+      return 0;
+    },
     royMid: function (e) {
-      switch (e[0]) { case 8: return e[1] === 12 ? 50 : 30; case 7: return 20; case 6: return 12;
-        case 5: return 8; case 4: return 4; case 3: return 2; default: return 0; }
+      switch (e[0]) { case 8: return e[1] === 12 ? 6 : 5; case 7: return 4; case 6: return 3;
+        case 5: return 2; case 4: return 1.5; case 3: return 1; default: return 0; }
     },
     royBot: function (e) {
-      switch (e[0]) { case 8: return e[1] === 12 ? 25 : 15; case 7: return 10; case 6: return 6;
-        case 5: return 4; case 4: return 2; default: return 0; }
+      switch (e[0]) { case 8: return e[1] === 12 ? 5 : 4; case 7: return 3; case 6: return 1.5;
+        case 5: return 1; case 4: return 0.5; default: return 0; }
     },
 
     // place is length-17 over the dealt cards: 0=top, 1=middle, 2=bottom, 3=discard.
@@ -445,22 +460,13 @@
       return r > 0 ? "+" + s : r < 0 ? "−" + s : "0";
     },
 
-    // Head-to-head row points of board x vs board y (from x's view): +1 per row
-    // x wins, −1 per row it loses, +3 bonus for sweeping all three. A fouled
-    // board loses every row. Range −6..+6.
-    rowPoints: function (x, y) {
-      if (x.fouled && y.fouled) return 0;
-      if (x.fouled) return -6;
-      if (y.fouled) return 6;
-      var b = this.cmp(x.eb, y.eb), m = this.cmp(x.em, y.em), t = this.cmp(x.et, y.et);
-      var net = 0, xw = 0, yw = 0;
-      [b, m, t].forEach(function (c) { if (c > 0) { net++; xw++; } else if (c < 0) { net--; yw++; } });
-      if (xw === 3) net += 3; else if (yw === 3) net -= 3;
-      return net;
-    },
     // Score the whole field for a day. list = [{addr, place}]. Each player's
-    // daily score = (average head-to-head row points vs everyone else) + royalties.
-    // Computed locally on every device from the shared boards, so it converges.
+    // daily score = (average head-to-head row points vs everyone else) + royalties,
+    // floored at 0 so a day can never go negative. Computed locally on every
+    // device from the shared boards, so it converges. Head-to-head per opponent:
+    // +1 per row won, −1 per row lost, +3 for sweeping all three; a fouled board
+    // loses every row. We keep the per-row split (top/mid/bottom + sweep) so the
+    // leaderboard can show exactly where each score comes from.
     scoreField: function (deck, list) {
       var self = this;
       var info = list.map(function (e) {
@@ -471,10 +477,25 @@
         return { addr: e.addr, et: et, em: em, eb: eb, fouled: fouled, roy: roy };
       });
       info.forEach(function (x) {
-        var total = 0, n = 0;
-        info.forEach(function (y) { if (x !== y) { n++; total += self.rowPoints(x, y); } });
-        x.rowAvg = n ? total / n : 0;
-        x.score = x.rowAvg + x.roy;
+        var n = 0, cmpT = 0, cmpM = 0, cmpB = 0, scoop = 0;
+        info.forEach(function (y) {
+          if (x === y) return;
+          n++;
+          if (x.fouled && y.fouled) return;                              // both foul: nothing exchanged
+          if (x.fouled) { cmpT--; cmpM--; cmpB--; scoop -= 3; return; }  // x loses every row + scooped
+          if (y.fouled) { cmpT++; cmpM++; cmpB++; scoop += 3; return; }  // x wins every row + sweep
+          var t = self.cmp(x.et, y.et), m = self.cmp(x.em, y.em), b = self.cmp(x.eb, y.eb);
+          var xw = 0, yw = 0;
+          if (t > 0) { cmpT++; xw++; } else if (t < 0) { cmpT--; yw++; }
+          if (m > 0) { cmpM++; xw++; } else if (m < 0) { cmpM--; yw++; }
+          if (b > 0) { cmpB++; xw++; } else if (b < 0) { cmpB--; yw++; }
+          if (xw === 3) scoop += 3; else if (yw === 3) scoop -= 3;
+        });
+        if (n) { cmpT /= n; cmpM /= n; cmpB /= n; scoop /= n; }
+        x.rowCmp = [cmpT, cmpM, cmpB];          // per-row comparison avg vs the field (top, mid, bottom)
+        x.scoop = scoop;                         // sweep bonus, averaged
+        x.rowAvg = cmpT + cmpM + cmpB + scoop;   // total head-to-head component (may be negative)
+        x.score = Math.max(0, x.rowAvg + x.roy); // floored at 0 — no negative daily scores
       });
       return info;
     },
@@ -517,7 +538,7 @@
 
       // Result headline (the daily Score) + a plain-language breakdown of where
       // it comes from and that it keeps moving as more people play today.
-      function outcomeBlock(score, roy, fouled, rank, n) {
+      function outcomeBlock(score, roy, fouled, rank, n, rowAvg) {
         var head = fouled
           ? '<div class="instruct foul">Fouled — rows out of order</div>'
           : '<div class="instruct ' + (score > 0 ? 'win' : '') + '">Score ' + G.fmtScore(score) + '</div>';
@@ -529,7 +550,7 @@
         } else if (fouled) {
           detail = 'A foul loses every row · #' + rank + ' of ' + n + ' today · keeps updating as more people play.';
         } else {
-          detail = '#' + rank + ' of ' + n + ' today · rows vs the group ' + G.fmtScore(Math.round((score - roy) * 10) / 10) +
+          detail = '#' + rank + ' of ' + n + ' today · rows vs the group ' + G.fmtScore(Math.round((rowAvg || 0) * 10) / 10) +
             ', royalties +' + roy + ' · keeps updating as more people play.';
         }
         return head + '<div class="subhint">' + detail + '</div>';
@@ -543,11 +564,12 @@
         if (prev && prev.place) {
           var rows = G.rowsFromPlace(deck, prev.place);
           var res = G.scoreBoard(rows.top, rows.mid, rows.bot);
-          var score = selfRow ? selfRow.score : (res.fouled ? G.FOUL : res.score);
+          var score = selfRow ? selfRow.score : (res.fouled ? 0 : res.score);
           var roy = selfRow ? selfRow.roy : (res.fouled ? 0 : res.score);
           var fouled = selfRow ? selfRow.fouled : res.fouled;
+          var rowAvg = selfRow ? selfRow.rowAvg : 0;
           root.innerHTML = '<div class="ofc">' + resultBoard(rows, res.fouled) +
-            outcomeBlock(score, roy, fouled, rank, dayRows.length) + '</div>';
+            outcomeBlock(score, roy, fouled, rank, dayRows.length, rowAvg) + '</div>';
         } else if (prev) {
           var line = dayRows.length > 1
             ? 'Score ' + G.fmtScore(selfRow ? selfRow.score : 0) + ' · #' + rank + ' of ' + dayRows.length + ' today · keeps updating as more people play.'
@@ -663,18 +685,34 @@
       var roy = [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
       var nm = [this.handName3(ev[0]), this.handName5(ev[1]), this.handName5(ev[2])];
       var arr = [rows.top, rows.mid, rows.bot];
-      var rowsHTML = arr.map(function (cs, i) {
-        return '<div class="prow">' + miniRow(cs) +
-          '<span class="pinfo">' + esc(nm[i]) + (roy[i] && !r.fouled ? ' <b>+' + roy[i] + '</b>' : "") + '</span></div>';
-      }).join("");
-      var calc;
-      if (r.fouled) calc = '<div class="pcalc foul">FOUL — loses every row · 0 royalties</div>';
-      else {
-        var rowAvg = Math.round((r.score - r.roy) * 10) / 10;
-        calc = '<div class="pcalc">rows vs field ' + GAME.fmtScore(rowAvg) + ' + royalties +' + r.roy +
-          ' = <b>' + GAME.fmtScore(r.score) + '</b></div>';
+
+      // Fouled: show the rows so people see what was built, but no points — it scores 0.
+      if (r.fouled) {
+        var fr = arr.map(function (cs, i) {
+          return '<div class="prow">' + miniRow(cs) +
+            '<span class="pname">' + esc(nm[i]) + '</span>' +
+            '<span class="pcmp foul">out of order</span></div>';
+        }).join("");
+        return '<div class="play">' + fr + '<div class="pcalc foul">FOUL — rows out of order · scores 0</div></div>';
       }
-      return '<div class="play">' + rowsHTML + calc + '</div>';
+
+      // Clean board: each row shows its comparison points + royalty points, with the
+      // row subtotal on the right; the whole-board total is the score up in the header.
+      var cmp = r.rowCmp || [0, 0, 0];
+      var rowsHTML = arr.map(function (cs, i) {
+        var sub = Math.round((cmp[i] + roy[i]) * 10) / 10;
+        return '<div class="prow">' + miniRow(cs) +
+          '<span class="pname">' + esc(nm[i]) + '</span>' +
+          '<span class="pcmp">rows ' + GAME.fmtScore(cmp[i]) + ' · roy ' + (roy[i] ? '+' + roy[i] : '0') + '</span>' +
+          '<span class="psub">' + GAME.fmtScore(sub) + '</span></div>';
+      }).join("");
+      var extra = "";
+      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">' +
+        (r.scoop >= 0 ? 'Sweep bonus — won all three rows' : 'Got swept — lost all three rows') +
+        '</span><span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
+      var raw = (r.rowAvg != null ? r.rowAvg : 0) + r.roy;
+      var floored = raw < -0.05 ? '<div class="pcalc flr">would be ' + GAME.fmtScore(raw) + ' · floored to 0</div>' : "";
+      return '<div class="play">' + rowsHTML + extra + floored + '</div>';
     },
 
     // OVERALL "Avg" column: average daily score (signed, 1 decimal).
@@ -778,7 +816,8 @@
     var deck = GAME.makePuzzle(rngForDay(day), day).deck;
     var info = GAME.scoreField(deck, list);
     var rows = list.map(function (e, i) {
-      return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled, roy: info[i].roy };
+      return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled,
+        roy: info[i].roy, rowCmp: info[i].rowCmp, scoop: info[i].scoop, rowAvg: info[i].rowAvg };
     });
     rows.sort(function (x, y) { return y.score - x.score; });
     return rows;
