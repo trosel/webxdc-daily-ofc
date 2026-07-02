@@ -160,6 +160,9 @@
           border:2px solid transparent; width:100%; }
   .brow .rhead { font-size:10px; font-weight:800; letter-spacing:.6px; color:var(--muted); display:flex; gap:6px; align-items:baseline; }
   .brow .rhead .made { color:var(--ink); font-weight:700; letter-spacing:0; }
+  .brow .rhead .made.risk { color:var(--bad); }
+  .brow .rhead .made.safe { color:var(--good); }
+  .riskword { color:var(--bad); font-weight:800; }
   .brow .rhead .roy { color:var(--accent-dark); font-weight:800; }
   .slots { display:flex; gap:4px; }
   .slot { width:40px; height:56px; border-radius:6px; border:1.5px dashed var(--line); }
@@ -368,18 +371,23 @@
       return { deck: deck };
     },
 
-    // --- hand evaluation. Each returns [category, t1..t5] (length 6), so the
-    // SAME comparator works across 3-card and 5-card hands. category ladder:
+    // --- hand evaluation. Every hand becomes a [category, t1..t5] rank array (length
+    // 6) so the SINGLE comparator `cmp` works across any two hands. category ladder:
     // 0 high · 1 pair · 2 two-pair · 3 trips · 4 straight · 5 flush · 6 full · 7 quads · 8 straight-flush
     pad: function (cat, ties) { var a = [cat]; for (var i = 0; i < 5; i++) a.push(ties[i] == null ? -1 : ties[i]); return a; },
-    eval3: function (cards) {
+    // The ONE evaluator, for a hand of any size. 5 cards -> full poker eval (below).
+    // Fewer -> rank-multiplicity only (high/pair/two-pair/trips/quads): exactly right
+    // for a 3-card top (OFC ignores straights/flushes up top) and for a partial row
+    // mid-build. Returns null for an empty row. Everything evaluates through here.
+    evalHand: function (cards) {
+      if (!cards.length) return null;
+      if (cards.length === 5) return this.eval5(cards);
       var rc = {}; cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; });
       var by = Object.keys(rc).map(Number).sort(function (a, b) { return rc[b] - rc[a] || b - a; });
-      var f0 = rc[by[0]];
-      var ranks = cards.map(function (c) { return c.r; }).sort(function (a, b) { return b - a; });
-      if (f0 === 3) return this.pad(3, [by[0]]);
-      if (f0 === 2) return this.pad(1, [by[0], by[1]]);
-      return this.pad(0, ranks);
+      var f0 = rc[by[0]], cat;
+      if (f0 === 4) cat = 7; else if (f0 === 3) cat = 3;
+      else if (f0 === 2) cat = (rc[by[1]] === 2) ? 2 : 1; else cat = 0;
+      return this.pad(cat, by);
     },
     eval5: function (cards) {
       var rc = {}, s0 = cards[0].s, flush = true;
@@ -438,14 +446,15 @@
     },
     // Score a completed board: foul (rows out of order) => FOUL, else sum of royalties.
     scoreBoard: function (top, mid, bot) {
-      var et = this.eval3(top), em = this.eval5(mid), eb = this.eval5(bot);
+      var et = this.evalHand(top), em = this.evalHand(mid), eb = this.evalHand(bot);
       var valid = this.cmp(eb, em) >= 0 && this.cmp(em, et) >= 0;
       if (!valid) return { fouled: true, score: this.FOUL, et: et, em: em, eb: eb };
       return { fouled: false, score: this.royTop(et) + this.royMid(em) + this.royBot(eb), et: et, em: em, eb: eb };
     },
 
-    handName3: function (e) { if (e[0] === 3) return "Trips " + this.RANKS[e[1]]; if (e[0] === 1) return "Pair " + this.RANKS[e[1]]; return this.RANKS[e[1]] + " high"; },
-    handName5: function (e) {
+    // ONE name formatter for any rank array — covers every category, including the
+    // high/pair/trips a 3-card top can be.
+    handName: function (e) {
       var R = this.RANKS;
       switch (e[0]) {
         case 8: return e[1] === 12 ? "Royal flush" : "Straight flush";
@@ -471,7 +480,7 @@
       var self = this;
       var info = list.map(function (e) {
         var rows = self.rowsFromPlace(deck, e.place);
-        var et = self.eval3(rows.top), em = self.eval5(rows.mid), eb = self.eval5(rows.bot);
+        var et = self.evalHand(rows.top), em = self.evalHand(rows.mid), eb = self.evalHand(rows.bot);
         var fouled = !(self.cmp(eb, em) >= 0 && self.cmp(em, et) >= 0);
         var roy = fouled ? 0 : self.royTop(et) + self.royMid(em) + self.royBot(eb);
         return { addr: e.addr, et: et, em: em, eb: eb, fouled: fouled, roy: roy };
@@ -507,25 +516,13 @@
       function isRed(c) { return c.s === 1 || c.s === 2; }
       function bcard(c) { return '<div class="bcard ' + (isRed(c) ? "red" : "black") + '"><span class="brk">' + R[c.r] + '</span><span class="bsu">' + S[c.s] + '</span></div>'; }
       function mcard(c) { return '<span class="mcard ' + (isRed(c) ? "red" : "black") + '">' + R[c.r] + '<span class="ms">' + S[c.s] + '</span></span>'; }
-      function rowLabel(cards, isTop) {
-        if (!cards.length) return "—";
-        if (cards.length === 5) return G.handName5(G.eval5(cards));
-        if (cards.length === 3 && isTop) return G.handName3(G.eval3(cards));
-        var rc = {}; cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; });
-        var trip = null, pair = null, np = 0;
-        Object.keys(rc).forEach(function (r) { if (rc[r] >= 3) trip = +r; else if (rc[r] === 2) { pair = +r; np++; } });
-        if (trip != null) return "Trips " + R[trip];
-        if (np >= 2) return "Two pair";
-        if (pair != null) return "Pair " + R[pair];
-        var hi = Math.max.apply(null, cards.map(function (c) { return c.r; }));
-        return R[hi] + " high";
-      }
+      function rowLabel(cards) { return cards.length ? G.handName(G.evalHand(cards)) : "—"; }
 
       // a static (non-interactive) board from three card arrays, with hand names + royalties
       function resultBoard(rows, fouled) {
-        var ev = [G.eval3(rows.top), G.eval5(rows.mid), G.eval5(rows.bot)];
+        var ev = [G.evalHand(rows.top), G.evalHand(rows.mid), G.evalHand(rows.bot)];
         var roy = [G.royTop(ev[0]), G.royMid(ev[1]), G.royBot(ev[2])];
-        var nm = [G.handName3(ev[0]), G.handName5(ev[1]), G.handName5(ev[2])];
+        var nm = [G.handName(ev[0]), G.handName(ev[1]), G.handName(ev[2])];
         var arr = [rows.top, rows.mid, rows.bot];
         var html = '<div class="board' + (fouled ? " fouled" : "") + '">';
         for (var row = 0; row < 3; row++) {
@@ -597,13 +594,32 @@
       function rowCards(row) { var a = []; for (var i = 0; i < 17; i++) if (place[i] === row) a.push(dealt[i]); return a; }
       function pending() { return revealIdx().filter(function (i) { return place[i] == null; }); }
 
-      function boardRow(row) {
+      // OFC is bottom-anchored: the bottom must be your strongest row and you build
+      // a descending staircase up to the top. A foul means a lower row is too WEAK
+      // to sit under the row above it, so the culprit is always that too-weak lower
+      // row. The top is the required-weakest row — it can never be "too weak", so it
+      // is never at fault; only the middle (weaker than the top) and the bottom
+      // (weaker than the middle) get flagged. "safe" = confirmed strong enough for
+      // its spot; "" = neutral / not yet judged (incl. an over-strong top, or a
+      // middle that's ahead of a still-thin bottom — those aren't the culprit).
+      function foulStates() {
+        var eT = G.evalHand(rowCards(0)), eM = G.evalHand(rowCards(1)), eB = G.evalHand(rowCards(2));
+        var tm = (eT && eM) && G.cmp(eT, eM) > 0;   // middle too weak: the top beats it
+        var mb = (eM && eB) && G.cmp(eM, eB) > 0;   // bottom too weak: the middle beats it
+        return [
+          tm ? "" : ((eT && eM) ? "safe" : ""),                                 // top: never the culprit
+          tm ? "risk" : (mb ? "" : (((eT && eM) || (eM && eB)) ? "safe" : "")), // middle: red only if weaker than top
+          mb ? "risk" : ((eM && eB) ? "safe" : "")                             // bottom: red if weaker than middle
+        ];
+      }
+
+      function boardRow(row, warn) {
         var cap = G.CAPS[row], cs = rowCards(row), full = cs.length >= cap;
         var canPlace = selIdx != null && !full && !complete();
         var slots = "";
         for (var i = 0; i < cap; i++) slots += i < cs.length ? bcard(cs[i]) : '<div class="slot"></div>';
         return '<div class="brow' + (canPlace ? " tappable" : "") + (full ? " full" : "") + '"' + (canPlace ? ' data-row="' + row + '"' : "") + '>' +
-          '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made">' + rowLabel(cs, row === 0) + '</span></div>' +
+          '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made ' + (warn || "") + '">' + rowLabel(cs) + '</span></div>' +
           '<div class="slots">' + slots + '</div></div>';
       }
 
@@ -624,14 +640,15 @@
         else instr = selIdx == null ? (phase === "opening" ? "Pick a card, then tap a row" : "Pick which 2 of 3 to keep") : "Tap a row to place it";
         var cnt = counts();
         var proceedLabel = phase === "opening" ? "Deal round 1 ▸" : lastRound ? "Submit board ✓" : "Deal round " + (roundIdx + 2) + " ▸";
+        var fs = foulStates();
         root.innerHTML = '<div class="ofc">' +
-          '<div class="board">' + boardRow(0) + boardRow(1) + boardRow(2) + '</div>' +
+          '<div class="board">' + boardRow(0, fs[0]) + boardRow(1, fs[1]) + boardRow(2, fs[2]) + '</div>' +
           '<div class="toplace"><div class="curlabel">' + label + '</div>' +
             '<div class="tray">' + tray + '</div>' +
             (disc.length ? '<div class="discpile">tossed&nbsp;' + disc.map(mcard).join("") + '</div>' : "") +
           '</div>' +
           '<div class="instruct">' + instr + '</div>' +
-          '<div class="subhint"><span class="progress">' + (cnt[0] + cnt[1] + cnt[2]) + ' / 13 placed</span> · keep Bottom ≥ Middle ≥ Top, or you foul.</div>' +
+          '<div class="subhint"><span class="progress">' + (cnt[0] + cnt[1] + cnt[2]) + ' / 13 placed</span> · keep Bottom ≥ Middle ≥ Top — <b class="riskword">red</b> rows are out of order.</div>' +
           '<div class="actions">' +
             '<button class="btn btn-ghost" id="undo"' + (revealPlaced.length ? "" : " disabled") + '>↶ Undo</button>' +
             (done ? '<button class="btn btn-primary" id="proceed">' + proceedLabel + '</button>' : "") +
@@ -681,9 +698,9 @@
           return '<span class="mcard ' + (red ? "red" : "black") + '">' + GAME.RANKS[c.r] + '<span class="ms">' + GAME.SUITS[c.s] + '</span></span>';
         }).join("") + '</span>';
       }
-      var ev = [this.eval3(rows.top), this.eval5(rows.mid), this.eval5(rows.bot)];
+      var ev = [this.evalHand(rows.top), this.evalHand(rows.mid), this.evalHand(rows.bot)];
       var roy = [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
-      var nm = [this.handName3(ev[0]), this.handName5(ev[1]), this.handName5(ev[2])];
+      var nm = [this.handName(ev[0]), this.handName(ev[1]), this.handName(ev[2])];
       var arr = [rows.top, rows.mid, rows.bot];
 
       // Fouled: show the rows so people see what was built, but no points — it scores 0.
