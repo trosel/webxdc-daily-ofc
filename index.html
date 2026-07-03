@@ -341,6 +341,9 @@
       "<p><b>The deal:</b> you're dealt 5 cards and place all five. Then four rounds of " +
       "<b>deal 3 · place 2 · toss 1</b>. Placed cards are locked, and you place before seeing the next round — " +
       "so chasing a big bottom can leave you unable to keep order. Everyone gets the same cards.</p>" +
+      "<p><b>While you build:</b> a row turns <span class='riskword'>red</span> when it's out of order with a " +
+      "neighbour and you can still fix it — that's normal mid-build, since a low row is often behind until you fill " +
+      "it (green = safely in order). Only the <i>final</i> board has to hold Bottom ≥ Middle ≥ Top.</p>" +
       "<p><b>Scoring — head-to-head + royalties:</b> your three rows are compared against everyone else who played " +
       "the same deal — <b>+1 for each row you win, +3 for sweeping all three</b> — averaged across the field, plus " +
       "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row. Your score is provisional and " +
@@ -533,22 +536,19 @@
         return html + '</div>';
       }
 
-      // Result headline (the daily Score) + a plain-language breakdown of where
-      // it comes from and that it keeps moving as more people play today.
+      // Result headline (the daily Score) + a short breakdown.
       function outcomeBlock(score, roy, fouled, rank, n, rowAvg) {
         var head = fouled
-          ? '<div class="instruct foul">Fouled — rows out of order</div>'
+          ? '<div class="instruct foul">Fouled · 0</div>'
           : '<div class="instruct ' + (score > 0 ? 'win' : '') + '">Score ' + G.fmtScore(score) + '</div>';
         var detail;
         if (n <= 1) {
-          detail = fouled
-            ? 'You’re the first to play today. A foul scores nothing — your rank against everyone else fills in as they play the same hand.'
-            : 'You’re the first to play today (royalties +' + roy + '). Your rank against everyone else fills in as they play the same hand.';
+          detail = fouled ? 'First in today — your rank fills in as others play.'
+            : 'First in today (royalties +' + roy + ') — your rank fills in as others play.';
         } else if (fouled) {
-          detail = 'A foul loses every row · #' + rank + ' of ' + n + ' today · keeps updating as more people play.';
+          detail = '#' + rank + ' of ' + n + ' today';
         } else {
-          detail = '#' + rank + ' of ' + n + ' today · rows vs the group ' + G.fmtScore(Math.round((rowAvg || 0) * 10) / 10) +
-            ', royalties +' + roy + ' · keeps updating as more people play.';
+          detail = '#' + rank + ' of ' + n + ' today · rows ' + G.fmtScore(Math.round((rowAvg || 0) * 10) / 10) + ' · royalties +' + roy;
         }
         return head + '<div class="subhint">' + detail + '</div>';
       }
@@ -569,8 +569,8 @@
             outcomeBlock(score, roy, fouled, rank, dayRows.length, rowAvg) + '</div>';
         } else if (prev) {
           var line = dayRows.length > 1
-            ? 'Score ' + G.fmtScore(selfRow ? selfRow.score : 0) + ' · #' + rank + ' of ' + dayRows.length + ' today · keeps updating as more people play.'
-            : 'Your rank fills in as others play today’s hand.';
+            ? 'Score ' + G.fmtScore(selfRow ? selfRow.score : 0) + ' · #' + rank + ' of ' + dayRows.length + ' today'
+            : 'Your rank fills in as others play.';
           root.innerHTML = '<div class="ofc"><div class="instruct">Played on another device</div><div class="subhint">' + line + '</div></div>';
         } else {
           root.innerHTML = '<div class="ofc"><div class="dealprev">' + deck.slice(0, 17).map(bcard).join("") + '</div>' +
@@ -594,22 +594,25 @@
       function rowCards(row) { var a = []; for (var i = 0; i < 17; i++) if (place[i] === row) a.push(dealt[i]); return a; }
       function pending() { return revealIdx().filter(function (i) { return place[i] == null; }); }
 
-      // OFC is bottom-anchored: the bottom must be your strongest row and you build
-      // a descending staircase up to the top. A foul means a lower row is too WEAK
-      // to sit under the row above it, so the culprit is always that too-weak lower
-      // row. The top is the required-weakest row — it can never be "too weak", so it
-      // is never at fault; only the middle (weaker than the top) and the bottom
-      // (weaker than the middle) get flagged. "safe" = confirmed strong enough for
-      // its spot; "" = neutral / not yet judged (incl. an over-strong top, or a
-      // middle that's ahead of a still-thin bottom — those aren't the culprit).
+      // Red = a row that's part of an out-of-order pair AND that you can still act on
+      // to fix it. Fixing means strengthening the too-weak LOWER row (add cards, or
+      // rearrange it while still undoable) or weakening the too-strong UPPER row (only
+      // possible by undoing a card still in the current reveal). So while a placement
+      // is undoable everything out of order lights up; once cards lock, only the lower
+      // rows you can still build up stay red. "safe" = in order with its neighbours.
       function foulStates() {
         var eT = G.evalHand(rowCards(0)), eM = G.evalHand(rowCards(1)), eB = G.evalHand(rowCards(2));
-        var tm = (eT && eM) && G.cmp(eT, eM) > 0;   // middle too weak: the top beats it
-        var mb = (eM && eB) && G.cmp(eM, eB) > 0;   // bottom too weak: the middle beats it
+        var tm = (eT && eM) && G.cmp(eT, eM) > 0;   // top beats middle -> out of order
+        var mb = (eM && eB) && G.cmp(eM, eB) > 0;   // middle beats bottom -> out of order
+        function canAdd(row) { return rowCards(row).length < G.CAPS[row]; }                          // room for more cards
+        function canUndo(row) { return revealPlaced.some(function (i) { return place[i] === row; }); } // holds a still-undoable card
+        var topRed = tm && canUndo(0);                                        // top is only ever the too-strong upper
+        var midRed = (tm && (canAdd(1) || canUndo(1))) || (mb && canUndo(1)); // too-weak vs top, or too-strong vs bottom
+        var botRed = mb && (canAdd(2) || canUndo(2));                         // bottom is only ever the too-weak lower
         return [
-          tm ? "" : ((eT && eM) ? "safe" : ""),                                 // top: never the culprit
-          tm ? "risk" : (mb ? "" : (((eT && eM) || (eM && eB)) ? "safe" : "")), // middle: red only if weaker than top
-          mb ? "risk" : ((eM && eB) ? "safe" : "")                             // bottom: red if weaker than middle
+          topRed ? "risk" : (!tm && eT && eM ? "safe" : ""),
+          midRed ? "risk" : (!tm && !mb && ((eT && eM) || (eM && eB)) ? "safe" : ""),
+          botRed ? "risk" : (!mb && eM && eB ? "safe" : "")
         ];
       }
 
@@ -648,7 +651,7 @@
             (disc.length ? '<div class="discpile">tossed&nbsp;' + disc.map(mcard).join("") + '</div>' : "") +
           '</div>' +
           '<div class="instruct">' + instr + '</div>' +
-          '<div class="subhint"><span class="progress">' + (cnt[0] + cnt[1] + cnt[2]) + ' / 13 placed</span> · keep Bottom ≥ Middle ≥ Top — <b class="riskword">red</b> rows are out of order.</div>' +
+          '<div class="subhint"><span class="progress">' + (cnt[0] + cnt[1] + cnt[2]) + ' / 13 placed</span> · finish with Bottom ≥ Middle ≥ Top</div>' +
           '<div class="actions">' +
             '<button class="btn btn-ghost" id="undo"' + (revealPlaced.length ? "" : " disabled") + '>↶ Undo</button>' +
             (done ? '<button class="btn btn-primary" id="proceed">' + proceedLabel + '</button>' : "") +
@@ -685,7 +688,7 @@
     },
 
     // Daily-leaderboard cell: head-to-head score, or FOUL.
-    label: function (r) { return r.fouled ? "FOUL" : GAME.fmtScore(r.score); },
+    label: function (r) { return GAME.fmtScore(r.score); },
 
     // "how they built it" strip: each row with its hand + royalty, then the
     // score breakdown — head-to-head rows vs the field PLUS royalties = score.
@@ -699,23 +702,13 @@
         }).join("") + '</span>';
       }
       var ev = [this.evalHand(rows.top), this.evalHand(rows.mid), this.evalHand(rows.bot)];
-      var roy = [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
       var nm = [this.handName(ev[0]), this.handName(ev[1]), this.handName(ev[2])];
-      var arr = [rows.top, rows.mid, rows.bot];
-
-      // Fouled: show the rows so people see what was built, but no points — it scores 0.
-      if (r.fouled) {
-        var fr = arr.map(function (cs, i) {
-          return '<div class="prow">' + miniRow(cs) +
-            '<span class="pname">' + esc(nm[i]) + '</span>' +
-            '<span class="pcmp foul">out of order</span></div>';
-        }).join("");
-        return '<div class="play">' + fr + '<div class="pcalc foul">FOUL — rows out of order · scores 0</div></div>';
-      }
-
-      // Clean board: each row shows its comparison points + royalty points, with the
-      // row subtotal on the right; the whole-board total is the score up in the header.
+      // Every board renders the same: per-row (comparison + royalty) with a subtotal,
+      // the sweep line, and the total up in the header. A foul just carries its real
+      // negative row losses, earns no royalties, and floors to 0.
+      var roy = r.fouled ? [0, 0, 0] : [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
       var cmp = r.rowCmp || [0, 0, 0];
+      var arr = [rows.top, rows.mid, rows.bot];
       var rowsHTML = arr.map(function (cs, i) {
         var sub = Math.round((cmp[i] + roy[i]) * 10) / 10;
         return '<div class="prow">' + miniRow(cs) +
@@ -724,12 +717,12 @@
           '<span class="psub">' + GAME.fmtScore(sub) + '</span></div>';
       }).join("");
       var extra = "";
-      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">' +
-        (r.scoop >= 0 ? 'Sweep bonus — won all three rows' : 'Got swept — lost all three rows') +
+      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">' + (r.scoop >= 0 ? 'Sweep bonus' : 'Got swept') +
         '</span><span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
       var raw = (r.rowAvg != null ? r.rowAvg : 0) + r.roy;
-      var floored = raw < -0.05 ? '<div class="pcalc flr">would be ' + GAME.fmtScore(raw) + ' · floored to 0</div>' : "";
-      return '<div class="play">' + rowsHTML + extra + floored + '</div>';
+      var note = r.fouled ? '<div class="pcalc flr">fouled · floored to 0</div>'
+        : (raw < -0.05 ? '<div class="pcalc flr">floored to 0</div>' : "");
+      return '<div class="play">' + rowsHTML + extra + note + '</div>';
     },
 
     // OVERALL "Avg" column: average daily score (signed, 1 decimal).
@@ -962,7 +955,11 @@
     var priorLeader = (function () { var p = dailyRows(day); return p.length ? p[0] : null; })();
     recordResult(addr, name, day, res); refreshBoards();
     var nowRows = dailyRows(day), nowLeader = nowRows.length ? nowRows[0] : null;
-    var tookLead = nowLeader && nowLeader.addr === addr && nowRows.length > 1 && (!priorLeader || priorLeader.addr !== addr);
+    // Genuinely took the lead only if we're now #1 AND strictly ahead of #2 — a tie
+    // for the top (e.g. two fouls both scoring 0) is not taking the lead.
+    var tookLead = nowLeader && nowLeader.addr === addr && nowRows.length > 1
+      && nowRows[1].score < nowLeader.score
+      && (!priorLeader || priorLeader.addr !== addr);
     if (xdc && xdc.sendUpdate) {
       // board quality for the silent chat line (stable, unlike the relative score)
       var deck = GAME.makePuzzle(rngForDay(day), day).deck, rs = GAME.rowsFromPlace(deck, res.place);
