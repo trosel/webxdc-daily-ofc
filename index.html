@@ -113,6 +113,15 @@
   .otable td.pts { font-weight:700; }
   .otable tr.me td { background:rgba(79,70,229,.12); }
   .scorehelp { font-size:11px; color:var(--muted); margin:8px 2px 2px; line-height:1.5; }
+  .seasonbar { display:flex; align-items:center; justify-content:center; gap:12px; margin:2px 0 12px; }
+  .seasonbar .seasonnav { background:var(--card); border:1px solid var(--line); color:var(--ink); width:30px; height:30px; border-radius:8px; font-size:16px; cursor:pointer; }
+  .seasonbar .seasonnav:disabled { opacity:.35; cursor:default; }
+  .seasonbar .seasonlbl { font-weight:700; font-size:14px; min-width:130px; text-align:center; }
+  .votepanel { font-size:12px; color:var(--muted); margin-top:14px; text-align:center; }
+  .votepanel.muted { font-style:italic; }
+  .votepanel .voted { color:var(--good); font-weight:700; }
+  .votebtn { display:block; width:100%; margin-top:14px; }
+  .votehint { font-size:11px; color:var(--muted); text-align:center; margin-top:6px; }
 
   .countdown { text-align:center; font-size:12px; color:var(--muted); margin-top:16px; }
   .countdown b { color:var(--ink); font-variant-numeric:tabular-nums; }
@@ -256,7 +265,9 @@
     </div>
     <div class="card" style="margin-top:12px">
       <h2>Overall standings</h2>
+      <div class="seasonbar" id="seasonBar" style="display:none"></div>
       <div id="overall"></div>
+      <div id="votePanel"></div>
       <div class="scorehelp" id="scoreHelp"></div>
     </div>
   </div>
@@ -800,6 +811,11 @@
   // ---- state ---------------------------------------------------------
   var TZ = null, TODAY = null, instanceSeed = null, firstDay = null, viewDay = null, gameStarted = false;
   var results = {};
+  var votes = {};          // votes[season] = { addr: true } — one-way "yes, reset" per player
+  var wipes = {};          // wipes[season] = { startDay, addr } — canonical boundary (min startDay)
+  var viewSeason = 0;      // which season the Overall screen is showing
+  var emittedWipe = {};    // seasons this device already broadcast a wipe for (this session)
+  var booted = false;      // true once the initial update replay has finished
   var MINE_KEY = "daily-ofc-mine-v1";
   var mine = loadMine();
 
@@ -832,21 +848,46 @@
     rows.sort(function (x, y) { return y.score - x.score; });
     return rows;
   }
-  function playStreak(rec) { var s = 0, d = TODAY; if (!rec.days[d]) d--; while (d >= firstDay && rec.days[d]) { s++; d--; } return s; }
-  function overallRows() {
+  // ---- seasons (vote-to-reset) ---------------------------------------
+  // A season is a contiguous range of days. Players cast a one-way "reset" vote;
+  // once a strict majority of THIS season's players have voted, a `wipe` fixes the
+  // boundary at the next reset, the standings are archived, and a fresh Overall
+  // begins. All of it is derived from the shared vote/result/wipe log, so devices
+  // converge just like the scores do.
+  function currentSeason() { var s = 0; while (wipes[s]) s++; return s; }
+  function seasonStart(s) { return s <= 0 ? firstDay : (wipes[s - 1] ? wipes[s - 1].startDay : firstDay); }
+  function seasonEnd(s) { return wipes[s] ? wipes[s].startDay : Infinity; }  // exclusive day
+  function countKeys(o) { var n = 0; for (var k in o) n++; return n; }
+  function seasonElectorate(s) {
+    var a0 = seasonStart(s), a1 = seasonEnd(s), set = {};
+    for (var a in results) { var ds = results[a].days; for (var dy in ds) { var d = +dy; if (d >= a0 && d < a1 && ds[dy] && ds[dy].place) { set[a] = 1; break; } } }
+    return set;
+  }
+  function seasonVoters(s) { var e = seasonElectorate(s), v = votes[s] || {}, out = {}; for (var a in v) if (e[a]) out[a] = 1; return out; }
+  function seasonNeeded(s) { return Math.floor(countKeys(seasonElectorate(s)) / 2) + 1; }               // strict majority
+  function seasonPassed(s) { var e = countKeys(seasonElectorate(s)); return e > 0 && countKeys(seasonVoters(s)) >= seasonNeeded(s); }
+  function recordVote(season, addr) { if (!votes[season]) votes[season] = {}; votes[season][addr] = true; }
+  function applyWipe(season, startDay, addr) {
+    var c = wipes[season];
+    if (!c || startDay < c.startDay || (startDay === c.startDay && addr < c.addr)) { wipes[season] = { startDay: startDay, addr: addr }; return true; }
+    return false;
+  }
+
+  function overallRows(season) {
+    if (season == null) season = currentSeason();
+    var a0 = seasonStart(season), a1 = seasonEnd(season), lastDay = Math.min(TODAY, a1 - 1);
     var allDays = {};
-    for (var a in results) for (var dy in results[a].days) allDays[dy] = 1;
+    for (var a in results) for (var dy in results[a].days) { var d = +dy; if (d >= a0 && d < a1) allDays[d] = 1; }
     var acc = {};
     function A(addr, name) { var x = acc[addr] || (acc[addr] = { addr: addr, name: name, played: 0, wins: 0, sum: 0, trophies: 0 }); if (name) x.name = name; return x; }
     Object.keys(allDays).forEach(function (dy) {
-      var rows = dailyRows(+dy);
-      rows.forEach(function (r, i) { var x = A(r.addr, r.name); x.played++; x.sum += r.score; if (!r.fouled) x.wins++; if (i === 0) x.trophies++; });
+      dailyRows(+dy).forEach(function (r, i) { var x = A(r.addr, r.name); x.played++; x.sum += r.score; if (!r.fouled) x.wins++; if (i === 0) x.trophies++; });
     });
+    function streak(rec) { var s = 0, d = lastDay; if (!rec.days[d]) d--; while (d >= a0 && rec.days[d]) { s++; d--; } return s; }
     var out = [];
-    for (var ad in acc) {
-      var x = acc[ad];
+    for (var ad in acc) { var x = acc[ad];
       out.push({ addr: ad, name: x.name, played: x.played, wins: x.wins, avg: x.played ? x.sum / x.played : 0,
-        trophies: x.trophies, streak: playStreak(results[ad]), pts: Math.round(x.sum * 10) / 10 });
+        trophies: x.trophies, streak: streak(results[ad]), pts: Math.round(x.sum * 10) / 10 });
     }
     out.sort(function (a, b) { return b.pts - a.pts || b.avg - a.avg || b.played - a.played; });
     return out;
@@ -920,23 +961,80 @@
     }).join("");
   }
   function renderOverall() {
-    var rows = overallRows(), me = selfAddr();
-    if (!rows.length) { $("overall").innerHTML = '<div class="lbempty">No results yet.</div>'; $("scoreHelp").textContent = ""; return; }
-    var html = '<table class="otable"><thead><tr><th class="l">#</th><th class="l">Player</th>' +
-      '<th>Clean</th><th>Avg</th><th>🏆</th><th>🔥</th><th>Score</th></tr></thead><tbody>';
-    rows.forEach(function (r, i) {
-      var avg = GAME.formatAvg ? GAME.formatAvg(r.avg) : r.avg.toFixed(1);
-      html += '<tr' + (r.addr === me ? ' class="me"' : "") + '>' +
-        '<td class="l">' + (i + 1) + '</td>' +
-        '<td class="l pnm">' + esc(r.name) + (r.addr === me ? " (you)" : "") + '</td>' +
-        '<td>' + r.wins + "/" + r.played + '</td>' +
-        '<td>' + avg + '</td>' +
-        '<td>' + (r.trophies || "·") + '</td>' +
-        '<td>' + (r.streak || "·") + '</td>' +
-        '<td class="pts">' + r.pts + '</td></tr>';
-    });
-    $("overall").innerHTML = html + "</tbody></table>";
+    var cs = currentSeason(), me = selfAddr();
+    viewSeason = Math.max(0, Math.min(viewSeason, cs));
+    var rows = overallRows(viewSeason);
+    // season navigation — only surfaced once at least one reset has happened
+    var sb = $("seasonBar");
+    if (cs > 0) {
+      sb.style.display = "";
+      sb.innerHTML = '<button class="seasonnav" id="seasonPrev"' + (viewSeason <= 0 ? " disabled" : "") + '>‹</button>' +
+        '<span class="seasonlbl">Season ' + (viewSeason + 1) + (viewSeason < cs ? ' · final' : '') + '</span>' +
+        '<button class="seasonnav" id="seasonNext"' + (viewSeason >= cs ? " disabled" : "") + '>›</button>';
+      var sp = $("seasonPrev"), sn = $("seasonNext");
+      if (sp) sp.addEventListener("click", function () { viewSeason--; renderOverall(); });
+      if (sn) sn.addEventListener("click", function () { viewSeason++; renderOverall(); });
+    } else { sb.style.display = "none"; sb.innerHTML = ""; }
+    // standings
+    if (!rows.length) { $("overall").innerHTML = '<div class="lbempty">No results yet' + (cs > 0 ? ' this season' : '') + '.</div>'; }
+    else {
+      var html = '<table class="otable"><thead><tr><th class="l">#</th><th class="l">Player</th>' +
+        '<th>Clean</th><th>Avg</th><th>🏆</th><th>🔥</th><th>Score</th></tr></thead><tbody>';
+      rows.forEach(function (r, i) {
+        var avg = GAME.formatAvg ? GAME.formatAvg(r.avg) : r.avg.toFixed(1);
+        html += '<tr' + (r.addr === me ? ' class="me"' : "") + '>' +
+          '<td class="l">' + (i + 1) + '</td>' +
+          '<td class="l pnm">' + esc(r.name) + (r.addr === me ? " (you)" : "") + '</td>' +
+          '<td>' + r.wins + "/" + r.played + '</td><td>' + avg + '</td>' +
+          '<td>' + (r.trophies || "·") + '</td><td>' + (r.streak || "·") + '</td>' +
+          '<td class="pts">' + r.pts + '</td></tr>';
+      });
+      $("overall").innerHTML = html + "</tbody></table>";
+    }
+    renderVotePanel(cs);
     $("scoreHelp").textContent = GAME.scoreHelp || "🏆 = days you topped the board · 🔥 = current daily streak.";
+  }
+  // The vote-to-reset panel: shown for the live season only; past seasons are frozen.
+  function renderVotePanel(cs) {
+    var vp = $("votePanel"), me = selfAddr();
+    if (viewSeason !== cs) { vp.innerHTML = '<div class="votepanel muted">Season ' + (viewSeason + 1) + ' · final standings</div>'; return; }
+    var e = countKeys(seasonElectorate(cs)), v = countKeys(seasonVoters(cs)), need = seasonNeeded(cs);
+    var tally = '<b>' + v + '</b> of ' + e + ' · ' + need + ' needed';
+    if (!e) { vp.innerHTML = '<div class="votepanel muted">Play today to open voting for a new season.</div>'; return; }
+    if (!seasonElectorate(cs)[me]) { vp.innerHTML = '<div class="votepanel muted">Play this season to vote on a reset · ' + tally + '</div>'; return; }
+    if (votes[cs] && votes[cs][me]) { vp.innerHTML = '<div class="votepanel"><span class="voted">✓ You voted to reset</span> · ' + tally + '</div>'; return; }
+    vp.innerHTML = '<button class="btn btn-ghost votebtn" id="voteBtn">🔄 Vote to start a new season</button>' +
+      '<div class="votehint">Archives this season and starts a fresh Overall · ' + tally + '</div>';
+    var b = $("voteBtn"); if (b) b.addEventListener("click", function () { castVote(cs); });
+  }
+  function castVote(season) {
+    var addr = selfAddr();
+    if (votes[season] && votes[season][addr]) return;
+    recordVote(season, addr);
+    if (xdc && xdc.sendUpdate) {
+      xdc.sendUpdate({ payload: { type: "vote", season: season, addr: addr },
+        info: selfName() + " voted to start a new season of " + GAME.name + " (" + countKeys(seasonVoters(season)) + "/" + countKeys(seasonElectorate(season)) + ")" }, "");
+    }
+    maybeWipe();
+    refreshBoards();
+  }
+  // If the current season has reached a majority and no wipe exists yet, fix the
+  // boundary at the next reset and broadcast it. Guarded so it never fires during
+  // the boot replay (a post-boot call handles any catch-up) and never twice.
+  function maybeWipe() {
+    if (!booted) return;
+    var s = currentSeason();
+    if (wipes[s] || emittedWipe[s] || !seasonPassed(s)) return;
+    emittedWipe[s] = true;
+    var startDay = (TODAY != null ? TODAY : firstDay) + 1, addr = selfAddr();
+    applyWipe(s, startDay, addr);
+    if (xdc && xdc.sendUpdate) {
+      var champ = overallRows(s)[0];
+      var text = "🔄 " + GAME.name + " Season " + (s + 1) + " is over — a majority voted to reset. Season " + (s + 2) +
+        " starts at the next puzzle." + (champ ? " 🏆 " + champ.name + " won with " + champ.pts + " pts." : "");
+      xdc.sendUpdate({ payload: { type: "wipe", season: s, startDay: startDay, addr: addr }, info: text, notify: { "*": text }, summary: chatSummary(TODAY) }, "");
+    }
+    viewSeason = currentSeason();
   }
   function overallOpen() { return $("overallScreen").classList.contains("show"); }
   function refreshBoards() { renderDaily(); if (overallOpen()) renderOverall(); }
@@ -1003,12 +1101,20 @@
         if (p.day === viewDay && mine.days[viewDay]) goToDay(viewDay);
         refreshBoards();
       }
+    } else if (p.type === "vote") {
+      if (p.season != null && p.addr) { recordVote(p.season, p.addr); maybeWipe(); if (gameStarted) refreshBoards(); }
+    } else if (p.type === "wipe") {
+      if (p.season != null && applyWipe(p.season, p.startDay, p.addr)) {
+        if (viewSeason === p.season) viewSeason = currentSeason();   // follow the reset into the new season
+        if (gameStarted) refreshBoards();
+      }
     }
   }
 
   // ---- tabs / overall full screen ------------------------------------
   function openOverall() {
     $("ovPuzzleNo").textContent = $("puzzleNo").textContent;
+    viewSeason = currentSeason();
     renderOverall();
     $("overallScreen").classList.add("show");
     $("tabDaily").classList.remove("active"); $("tabOverall").classList.add("active");
@@ -1129,10 +1235,11 @@
 
   if (xdc && xdc.setUpdateListener) {
     xdc.setUpdateListener(onUpdate, 0).then(function () {
+      booted = true; maybeWipe();   // replay done — emit a wipe if a majority is already in but no wipe landed
       if (instanceSeed === null) { showSetup(); return; }
       if (gameStarted && viewDay !== null) goToDay(viewDay);
     });
-  } else { showSetup(); }
+  } else { booted = true; showSetup(); }
 
   // ---- countdown -----------------------------------------------------
   function pad2(x) { return (x < 10 ? "0" : "") + x; }
