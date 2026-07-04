@@ -845,7 +845,8 @@
       return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled,
         roy: info[i].roy, rowCmp: info[i].rowCmp, scoop: info[i].scoop, rowAvg: info[i].rowAvg };
     });
-    rows.sort(function (x, y) { return y.score - x.score; });
+    // Sort by score; break exact ties by address so every device orders them the same.
+    rows.sort(function (x, y) { return (y.score - x.score) || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0); });
     return rows;
   }
   // ---- seasons (vote-to-reset) ---------------------------------------
@@ -935,7 +936,7 @@
   }
 
   // ---- leaderboard rendering -----------------------------------------
-  function medal(i) { return i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : ""; }
+  function medalFor(rank) { return rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : ""; }
   function renderDaily() {
     var rows = dailyRows(viewDay), me = selfAddr();
     $("dailyDate").innerHTML = (viewDay === TODAY ? "Today" : dayLabel(viewDay)) + " · results";
@@ -955,7 +956,12 @@
     $("lb").innerHTML = rows.map(function (r, i) {
       var mineCls = r.addr === me ? " me" : "";
       var strip = GAME.playStrip ? GAME.playStrip(deck, r) : "";
-      return '<div class="lbrow' + mineCls + '"><span class="rank">' + (medal(i) || (i + 1)) + '</span>' +
+      // Rank by score TIER — tied players share a place, and the next distinct score
+      // takes the next medal (5, 5, 1 → 🥇 🥇 🥈). A push (win a row, lose a row, tie
+      // the third) is 0–0, so both share the top spot.
+      var higher = {}; for (var j = 0; j < rows.length; j++) if (rows[j].score > r.score) higher[rows[j].score] = 1;
+      var rank = 1 + Object.keys(higher).length;
+      return '<div class="lbrow' + mineCls + '"><span class="rank">' + (medalFor(rank) || rank) + '</span>' +
         '<span class="nm">' + esc(r.name) + (mineCls ? " (you)" : "") + '</span>' +
         '<span class="sc' + (r.fouled ? " foul" : "") + '">' + esc(lbl(r)) + '</span>' + strip + '</div>';
     }).join("");
