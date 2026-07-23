@@ -483,13 +483,14 @@
       return r > 0 ? "+" + s : r < 0 ? "−" + s : "0";
     },
 
-    // Score the whole field for a day. list = [{addr, place}]. Each player's
-    // daily score = (average head-to-head row points vs everyone else) + royalties,
-    // floored at 0 so a day can never go negative. Computed locally on every
-    // device from the shared boards, so it converges. Head-to-head per opponent:
-    // +1 per row won, −1 per row lost, +3 for sweeping all three; a fouled board
-    // loses every row. We keep the per-row split (top/mid/bottom + sweep) so the
-    // leaderboard can show exactly where each score comes from.
+    // Score the whole field for a day. list = [{addr, place}]. Each player's daily
+    // score = (average head-to-head row points vs everyone else) + royalties.
+    // Per opponent a row is +1 win / −1 loss / 0 tie, plus +3 for sweeping all three,
+    // averaged across the field — but each row's average and the sweep are then
+    // clamped at 0, so you're rewarded for rows you win and never punished for ones
+    // you lose. Result is always ≥ 0, so a clean board that wins anything beats a
+    // foul (which wins nothing → 0). Computed locally on every device, so it
+    // converges. The per-row split (top/mid/bottom + sweep) is kept for the display.
     scoreField: function (deck, list) {
       var self = this;
       var info = list.map(function (e) {
@@ -515,10 +516,15 @@
           if (xw === 3) scoop += 3; else if (yw === 3) scoop -= 3;
         });
         if (n) { cmpT /= n; cmpM /= n; cmpB /= n; scoop /= n; }
-        x.rowCmp = [cmpT, cmpM, cmpB];          // per-row comparison avg vs the field (top, mid, bottom)
-        x.scoop = scoop;                         // sweep bonus, averaged
-        x.rowAvg = cmpT + cmpM + cmpB + scoop;   // total head-to-head component (may be negative)
-        x.score = Math.max(0, x.rowAvg + x.roy); // floored at 0 — no negative daily scores
+        // Only rows you're AHEAD on (and sweeps) add points — a row you're behind on
+        // scores 0, never negative. So a clean board can't drop below 0 (no floor
+        // needed), anyone who wins even one row beats a foul (0), and you're never
+        // punished for a weak row — only rewarded for a strong one.
+        cmpT = Math.max(0, cmpT); cmpM = Math.max(0, cmpM); cmpB = Math.max(0, cmpB); scoop = Math.max(0, scoop);
+        x.rowCmp = [cmpT, cmpM, cmpB];          // per-row points (0 when behind), top/mid/bottom
+        x.scoop = scoop;                         // sweep bonus, averaged (0 if not sweeping)
+        x.rowAvg = cmpT + cmpM + cmpB + scoop;   // head-to-head component, always ≥ 0
+        x.score = x.rowAvg + x.roy;              // already ≥ 0 — no floor
       });
       return info;
     },
@@ -728,11 +734,9 @@
           '<span class="psub">' + GAME.fmtScore(sub) + '</span></div>';
       }).join("");
       var extra = "";
-      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">' + (r.scoop >= 0 ? 'Sweep bonus' : 'Got swept') +
-        '</span><span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
-      var raw = (r.rowAvg != null ? r.rowAvg : 0) + r.roy;
-      var note = r.fouled ? '<div class="pcalc flr">fouled · floored to 0</div>'
-        : (raw < -0.05 ? '<div class="pcalc flr">floored to 0</div>' : "");
+      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">Sweep bonus — won all three rows</span>' +
+        '<span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
+      var note = r.fouled ? '<div class="pcalc flr">fouled — no rows won</div>' : "";
       return '<div class="play">' + rowsHTML + extra + note + '</div>';
     },
 
@@ -890,7 +894,9 @@
       out.push({ addr: ad, name: x.name, played: x.played, wins: x.wins, avg: x.played ? x.sum / x.played : 0,
         trophies: x.trophies, streak: streak(results[ad]), pts: Math.round(x.sum * 10) / 10 });
     }
-    out.sort(function (a, b) { return b.pts - a.pts || b.avg - a.avg || b.played - a.played; });
+    // Rank by AVERAGE daily score (not total), so someone who skips days but plays
+    // well still places on merit. Ties: more days played, then total.
+    out.sort(function (a, b) { return b.avg - a.avg || b.played - a.played || b.pts - a.pts; });
     return out;
   }
 
