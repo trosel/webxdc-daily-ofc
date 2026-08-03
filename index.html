@@ -75,7 +75,8 @@
   .lbrow .nm { flex:1; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .lbrow .sc { font-weight:700; font-variant-numeric:tabular-nums; font-size:14px; color:var(--ink); }
   .lbrow .sc.foul { color:var(--bad); }
-  .lbrow.me { background:rgba(79,70,229,.12); border-radius:8px; }
+  .lbrow.me { background:rgba(79,70,229,.12); border-radius:8px; border-bottom-color:transparent; }
+  .lbrow.me + .lbrow { border-top:1px solid var(--line); margin-top:-1px; }
   .lbempty { color:var(--muted); font-size:14px; text-align:center; padding:18px 0; }
 
   /* "how they built it" strip in the daily board: three stacked mini-rows */
@@ -356,8 +357,9 @@
       "neighbour and you can still fix it — that's normal mid-build, since a low row is often behind until you fill " +
       "it (green = safely in order). Only the <i>final</i> board has to hold Bottom ≥ Middle ≥ Top.</p>" +
       "<p><b>Scoring — head-to-head + royalties:</b> your three rows are compared against everyone else who played " +
-      "the same deal — <b>+1 for each row you win, +3 for sweeping all three</b> — averaged across the field, plus " +
-      "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row. Your score is provisional and " +
+      "the same deal — <b>+1 for each row you win</b>, averaged across the field — plus <b>+1 just for a clean board</b> " +
+      "(finishing in order) and <b>+1 for sweeping all three rows off everyone</b>, plus " +
+      "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row and earns no bonuses. Your score is provisional and " +
       "settles by the daily reset, so standings shift as more people play.</p>" +
       "<table class='pt'>" +
       "<tr><td><b>Top</b> · pair TT→AA (½-steps) / trips</td><td>1→3 / 4→6</td></tr>" +
@@ -485,12 +487,12 @@
 
     // Score the whole field for a day. list = [{addr, place}]. Each player's daily
     // score = (average head-to-head row points vs everyone else) + royalties.
-    // Per opponent a row is +1 win / −1 loss / 0 tie, plus +3 for sweeping all three,
-    // averaged across the field — but each row's average and the sweep are then
-    // clamped at 0, so you're rewarded for rows you win and never punished for ones
-    // you lose. Result is always ≥ 0, so a clean board that wins anything beats a
-    // foul (which wins nothing → 0). Computed locally on every device, so it
-    // converges. The per-row split (top/mid/bottom + sweep) is kept for the display.
+    // Per opponent a row is +1 win / −1 loss / 0 tie, averaged across the field — but
+    // each row's average is clamped at 0, so you're rewarded for rows you win and never
+    // punished for ones you lose. Then +1 for a clean board (not fouling) and +1 for
+    // sweeping all three rows off everyone. Result is always ≥ 0, so any clean board
+    // beats a foul (which wins nothing and earns no bonuses → 0). Computed locally on
+    // every device, so it converges. The per-row split + bonuses are kept for display.
     scoreField: function (deck, list) {
       var self = this;
       var info = list.map(function (e) {
@@ -501,30 +503,37 @@
         return { addr: e.addr, et: et, em: em, eb: eb, fouled: fouled, roy: roy };
       });
       info.forEach(function (x) {
-        var n = 0, cmpT = 0, cmpM = 0, cmpB = 0, scoop = 0;
+        var n = 0, cmpT = 0, cmpM = 0, cmpB = 0;
+        var sweptAll = true;   // did x take all three rows off EVERY opponent it played?
         info.forEach(function (y) {
           if (x === y) return;
           n++;
-          if (x.fouled && y.fouled) return;                              // both foul: nothing exchanged
-          if (x.fouled) { cmpT--; cmpM--; cmpB--; scoop -= 3; return; }  // x loses every row + scooped
-          if (y.fouled) { cmpT++; cmpM++; cmpB++; scoop += 3; return; }  // x wins every row + sweep
+          if (x.fouled && y.fouled) return;                    // both foul: nothing exchanged
+          if (x.fouled) { cmpT--; cmpM--; cmpB--; return; }    // x loses every row to clean y
+          if (y.fouled) { cmpT++; cmpM++; cmpB++; return; }    // a foul auto-loses all three rows to x — still a sweep of them
           var t = self.cmp(x.et, y.et), m = self.cmp(x.em, y.em), b = self.cmp(x.eb, y.eb);
-          var xw = 0, yw = 0;
-          if (t > 0) { cmpT++; xw++; } else if (t < 0) { cmpT--; yw++; }
-          if (m > 0) { cmpM++; xw++; } else if (m < 0) { cmpM--; yw++; }
-          if (b > 0) { cmpB++; xw++; } else if (b < 0) { cmpB--; yw++; }
-          if (xw === 3) scoop += 3; else if (yw === 3) scoop -= 3;
+          var xw = 0;
+          if (t > 0) { cmpT++; xw++; } else if (t < 0) cmpT--;
+          if (m > 0) { cmpM++; xw++; } else if (m < 0) cmpM--;
+          if (b > 0) { cmpB++; xw++; } else if (b < 0) cmpB--;
+          if (xw < 3) sweptAll = false;                        // lost or tied a row to this clean rival — not a field sweep
         });
-        if (n) { cmpT /= n; cmpM /= n; cmpB /= n; scoop /= n; }
-        // Only rows you're AHEAD on (and sweeps) add points — a row you're behind on
-        // scores 0, never negative. So a clean board can't drop below 0 (no floor
-        // needed), anyone who wins even one row beats a foul (0), and you're never
-        // punished for a weak row — only rewarded for a strong one.
-        cmpT = Math.max(0, cmpT); cmpM = Math.max(0, cmpM); cmpB = Math.max(0, cmpB); scoop = Math.max(0, scoop);
+        if (n) { cmpT /= n; cmpM /= n; cmpB /= n; }
+        // Clean-board bonus: a flat +1 just for finishing a legal board (Bottom ≥ Mid ≥ Top).
+        // Rewards showing up and not fouling, so a clean board that wins no rows still scores +1.
+        var clean = x.fouled ? 0 : 1;
+        // Sweep bonus: a single flat +1 for taking all three rows off EVERYONE you played
+        // (a foul counts as beaten on all three). A true whole-field sweep — never partial.
+        var scoop = (!x.fouled && n >= 1 && sweptAll) ? 1 : 0;
+        // Only rows you're AHEAD on (and the bonuses) add points — a row you're behind on
+        // scores 0, never negative. So a clean board can't drop below 0 (no floor needed),
+        // and you're never punished for a weak row — only rewarded for a strong one.
+        cmpT = Math.max(0, cmpT); cmpM = Math.max(0, cmpM); cmpB = Math.max(0, cmpB);
         x.rowCmp = [cmpT, cmpM, cmpB];          // per-row points (0 when behind), top/mid/bottom
-        x.scoop = scoop;                         // sweep bonus, averaged (0 if not sweeping)
+        x.clean = clean;                         // clean-board bonus: +1 for not fouling, else 0
+        x.scoop = scoop;                         // sweep bonus: +1 for sweeping the whole field, else 0
         x.rowAvg = cmpT + cmpM + cmpB + scoop;   // head-to-head component, always ≥ 0
-        x.score = x.rowAvg + x.roy;              // already ≥ 0 — no floor
+        x.score = x.rowAvg + x.roy + clean;      // already ≥ 0 — no floor
       });
       return info;
     },
@@ -604,6 +613,38 @@
       var place = []; for (var z = 0; z < 17; z++) place.push(null);  // 0/1/2 row, 3 discard, null pending
       var phase = "opening", roundIdx = 0, selIdx = null, revealPlaced = [];
 
+      // Resume an interrupted hand. Restored exactly as it was left — including which
+      // cards are still undoable — so quitting mid-hand neither costs nor gains you
+      // anything. Anything malformed falls back to a fresh board.
+      function restore(s) {
+        if (!s || !Array.isArray(s.place) || s.place.length !== 17) return false;
+        var ph = s.phase === "round" ? "round" : "opening";
+        var ri = ph === "round" ? (s.roundIdx | 0) : 0;
+        if (ri < 0 || ri > 3) return false;
+        var start = ph === "opening" ? 0 : 5 + 3 * ri, end = ph === "opening" ? 5 : start + 3;
+        var c = [0, 0, 0];
+        for (var i = 0; i < 17; i++) {
+          var v = s.place[i], onBoard = (v === 0 || v === 1 || v === 2);
+          if (!(v === null || v === 3 || onBoard)) return false;   // not a legal slot
+          if (onBoard) c[v]++;
+          if (i >= end && v !== null) return false;                // that card isn't dealt yet
+          if (i < start && v === null) return false;               // an earlier reveal was left open
+        }
+        if (c[0] > G.CAPS[0] || c[1] > G.CAPS[1] || c[2] > G.CAPS[2]) return false;
+        place = s.place.slice(); phase = ph; roundIdx = ri;
+        revealPlaced = (Array.isArray(s.revealPlaced) ? s.revealPlaced : []).filter(function (i) {
+          return i >= start && i < end && (place[i] === 0 || place[i] === 1 || place[i] === 2);
+        });
+        selIdx = (s.selIdx != null && s.selIdx >= start && s.selIdx < end && place[s.selIdx] == null) ? s.selIdx : null;
+        return true;
+      }
+      restore(ctx.progress);
+      // Called from paint(), which every state change funnels through.
+      function save() {
+        ctx.saveProgress({ place: place.slice(), phase: phase, roundIdx: roundIdx,
+          revealPlaced: revealPlaced.slice(), selIdx: selIdx });
+      }
+
       function revealIdx() { if (phase === "opening") return [0, 1, 2, 3, 4]; var b = 5 + 3 * roundIdx; return [b, b + 1, b + 2]; }
       function need() { return phase === "opening" ? 5 : 2; }
       function complete() { return revealPlaced.length >= need(); }
@@ -644,6 +685,7 @@
       }
 
       function paint() {
+        save();
         var done = complete(), pend = pending();
         // pending cards are selectable until the reveal is complete; after that the
         // leftover (a round's third card) is shown marked as the toss.
@@ -734,7 +776,9 @@
           '<span class="psub">' + GAME.fmtScore(sub) + '</span></div>';
       }).join("");
       var extra = "";
-      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">Sweep bonus — won all three rows</span>' +
+      if (!r.fouled) extra += '<div class="prow xtra"><span class="pname">Clean board — completed in order</span>' +
+        '<span class="psub">' + GAME.fmtScore(r.clean != null ? r.clean : 1) + '</span></div>';
+      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">Sweep bonus — beat everyone on all three rows</span>' +
         '<span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
       var note = r.fouled ? '<div class="pcalc flr">fouled — no rows won</div>' : "";
       return '<div class="play">' + rowsHTML + extra + note + '</div>';
@@ -743,8 +787,8 @@
     // OVERALL "Avg" column: average daily score (signed, 1 decimal).
     formatAvg: function (mean) { return GAME.fmtScore(Math.round(mean * 10) / 10); },
 
-    scoreHelp: "Score = head-to-head row wins vs the field (+1 per row, +3 sweep), averaged, plus royalty bonuses. " +
-      "A foul loses every row. 🏆 = days you topped · 🔥 = days played in a row."
+    scoreHelp: "Score = head-to-head row wins vs the field (+1 per row), averaged, plus +1 for a clean board, " +
+      "+1 for sweeping everyone, and royalty bonuses. A foul loses every row. 🏆 = days you topped · 🔥 = days played in a row."
   };
   // ===================================================================
   // ===== END GAME ADAPTER. Generic framework below. ==================
@@ -847,7 +891,7 @@
     var info = GAME.scoreField(deck, list);
     var rows = list.map(function (e, i) {
       return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled,
-        roy: info[i].roy, rowCmp: info[i].rowCmp, scoop: info[i].scoop, rowAvg: info[i].rowAvg };
+        roy: info[i].roy, rowCmp: info[i].rowCmp, clean: info[i].clean, scoop: info[i].scoop, rowAvg: info[i].rowAvg };
     });
     // Sort by score; break exact ties by address so every device orders them the same.
     rows.sort(function (x, y) { return (y.score - x.score) || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0); });
@@ -923,6 +967,8 @@
       self: selfAddr(),
       dayRows: dailyRows(viewDay),
       submit: function (res) { submitResult(viewDay, res); },
+      progress: progressFor(viewDay),
+      saveProgress: function (state) { saveProgress(viewDay, state); },
       toast: toast
     });
     refreshView();
@@ -934,9 +980,27 @@
     $("navPrev").disabled = (viewDay <= firstDay);
     $("navNext").disabled = (viewDay >= TODAY);
   }
+  // ---- in-progress hand ----------------------------------------------
+  // A hand you've started is saved after every tap, so closing the app mid-hand
+  // resumes exactly where you left off. Without this you could see the deal, quit,
+  // and rebuild the board already knowing every card still to come.
+  function progressFor(day) {
+    return (mine.wip && mine.wip.day === day && !mine.days[day]) ? mine.wip.state : null;
+  }
+  function saveProgress(day, state) {
+    if (day !== TODAY || mine.days[day]) return;
+    mine.wip = { day: day, state: state };
+    saveMine();
+  }
+  function clearProgress(day) {
+    if (mine.wip && mine.wip.day === day) { mine.wip = null; saveMine(); }
+  }
+
   function submitResult(day, res) {
     if (day !== TODAY || mine.days[day]) return;
-    mine.days[day] = res; saveMine();
+    mine.days[day] = res;
+    if (mine.wip && mine.wip.day === day) mine.wip = null;   // hand is done — drop the WIP
+    saveMine();
     broadcastResult(day, res);
     goToDay(day);
   }
@@ -1103,6 +1167,7 @@
       var adopted = false;
       if (p.addr === selfAddr() && !mine.days[p.day]) {
         mine.days[p.day] = { place: p.place };
+        if (mine.wip && mine.wip.day === p.day) mine.wip = null;   // played on another device
         saveMine();
         adopted = true;
       }
