@@ -30,6 +30,9 @@
             --shadow:0 1px 3px rgba(0,0,0,.5); }
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  /* Stop mobile webviews auto-inflating the small labels — Android's font
+     boosting in particular will resize them and blow the layout apart. */
+  html { -webkit-text-size-adjust:100%; -moz-text-size-adjust:100%; text-size-adjust:100%; }
   html,body { margin:0; padding:0; }
   body { background:var(--bg); color:var(--ink); min-height:100vh; padding:12px;
          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -146,7 +149,16 @@
   .btn-primary { background:var(--accent); color:#fff; }
   .btn-ghost { background:var(--card); color:var(--ink); }
   .btn:disabled { opacity:.45; cursor:default; transform:none; }
-  .actions { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  /* The primary action pins to the bottom of the screen while you're building.
+     Two boards plus a tray is taller than a short phone, and burying "deal the
+     next round" below the fold made people zoom out to find it. Sticky is
+     scoped to the stage, so it releases rather than floating over the
+     leaderboard underneath. */
+  .actions { display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap;
+             position:sticky; bottom:0; z-index:5; background:var(--card);
+             padding:8px 0 2px; margin-left:-16px; margin-right:-16px; }
+  .actions::before { content:""; position:absolute; left:0; right:0; top:-14px; height:14px;
+                     background:linear-gradient(to bottom, transparent, var(--card)); pointer-events:none; }
   .actions .btn { min-width:120px; }
 
   /* modal */
@@ -162,7 +174,47 @@
            padding:10px 16px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:80; }
   .toast.show { opacity:1; }
 
+  /* Short phones: tighten everything so a hand needs little or no scrolling.
+     This app carries a header, date nav and tabs on top of two boards, so it
+     has less vertical room to spare than the standalone build. */
+  @media (max-height: 760px) {
+    body { padding:8px; }
+    header { margin-bottom:5px; }
+    .brand h1 { font-size:20px; }
+    .iconbtn { width:34px; height:34px; font-size:16px; }
+    .datenav { margin-bottom:5px; }
+    .navbtn { width:27px; height:27px; font-size:16px; }
+    .datelabel { font-size:13px; }
+    .stage { padding:11px; }
+    .rival { padding:6px 8px; margin-bottom:8px; }
+    .rrow { padding:0; }
+    .rslot, .rival .mcard { width:17px; height:23px; }
+    .board { gap:4px; }
+    .brow { padding:2px 5px; gap:2px; }
+    .bcard, .slot { width:34px; height:48px; }
+    .bcard .brk { font-size:14px; } .bcard .bsu { font-size:16px; }
+    .toplace { margin-top:9px; gap:5px; }
+    .instruct { font-size:13px; margin:8px 0 2px; }
+    .subhint { font-size:11px; }
+    .actions { margin-top:8px; margin-left:-11px; margin-right:-11px; }
+    .btn { padding:9px 14px; font-size:13px; }
+    .actions .btn { min-width:108px; }
+  }
+
   /* ---- Open-Face Chinese board ---- */
+  /* the rival's board — compact, read-only, always a step ahead of you */
+  .rival { text-align:left; background:rgba(127,127,127,.07); border:1px solid var(--line);
+           border-radius:11px; padding:8px 10px; margin-bottom:12px; }
+  .rivalhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
+  .rivalhead .who { font-size:10px; font-weight:800; letter-spacing:.7px; color:var(--muted); }
+  .rivalhead .rtot { font-size:9px; font-weight:700; color:var(--muted); }
+  .rrow { display:flex; align-items:center; gap:7px; padding:1px 0; }
+  .rrow .rlab { font-size:9px; font-weight:800; letter-spacing:.4px; color:var(--muted); width:22px; flex:0 0 22px; }
+  .rrow .rcards { display:flex; gap:3px; flex:1; }
+  .rrow .rname { font-size:10px; color:var(--ink); font-weight:600; text-align:right; min-width:52px; }
+  .rrow .rname b { color:var(--accent-dark); font-weight:800; }
+  .rslot { width:19px; height:26px; border-radius:3px; border:1px dashed var(--line); display:inline-block; }
+
   .ofc { text-align:center; }
   .board { display:flex; flex-direction:column; align-items:center; gap:7px; }
   .board.fouled { outline:2px solid var(--bad); outline-offset:4px; border-radius:12px; }
@@ -172,6 +224,10 @@
   .brow .rhead .made { color:var(--ink); font-weight:700; letter-spacing:0; }
   .brow .rhead .made.risk { color:var(--bad); }
   .brow .rhead .made.safe { color:var(--good); }
+  .brow .rhead .vs { font-size:9px; font-weight:800; letter-spacing:0; }
+  .brow .rhead .vs.ahead { color:var(--good); }
+  .brow .rhead .vs.behind { color:var(--muted); }
+  .brow .rhead .vs.level { color:var(--muted); }
   .riskword { color:var(--bad); font-weight:800; }
   .brow .rhead .roy { color:var(--accent-dark); font-weight:800; }
   .slots { display:flex; gap:4px; }
@@ -352,23 +408,30 @@
       "<li><b>Top</b> (3 cards) — the weakest</li></ul>" +
       "<p><b>The deal:</b> you're dealt 5 cards and place all five. Then four rounds of " +
       "<b>deal 3 · place 2 · toss 1</b>. Placed cards are locked, and you place before seeing the next round — " +
-      "so chasing a big bottom can leave you unable to keep order. Everyone gets the same cards.</p>" +
+      "so chasing a big bottom can leave you unable to keep order. Everyone in the chat gets the same cards.</p>" +
+      "<p><b>You play the rival, not each other.</b> The whole chat faces the same rival on the same deal, " +
+      "and it acts <i>before</i> you every round — so you can see exactly what you have to beat, row by row, " +
+      "while you still have cards to place. Every card it shows is also a card that can no longer come to you. " +
+      "Its tossed cards stay face down, as in the real game.</p>" +
+      "<p>Because your score is measured against the rival and nothing else, it is <b>final the moment you " +
+      "finish</b> — it can't move because somebody else played later, and any two scores are directly " +
+      "comparable. The leaderboard is just everyone's score against the same opponent.</p>" +
       "<p><b>While you build:</b> a row turns <span class='riskword'>red</span> when it's out of order with a " +
       "neighbour and you can still fix it — that's normal mid-build, since a low row is often behind until you fill " +
       "it (green = safely in order). Only the <i>final</i> board has to hold Bottom ≥ Middle ≥ Top.</p>" +
-      "<p><b>Scoring — head-to-head + royalties:</b> your three rows are compared against everyone else who played " +
-      "the same deal — <b>+1 for each row you win</b>, averaged across the field — plus <b>+1 just for a clean board</b> " +
-      "(finishing in order) and <b>+1 for sweeping all three rows off everyone</b>, plus " +
-      "<b>royalty bonuses</b> for strong hands (below). A <b>foul</b> loses every row and earns no bonuses. Your score is provisional and " +
-      "settles by the daily reset, so standings shift as more people play.</p>" +
+      "<p><b>Scoring (standard OFC):</b> <b>+1</b> for each row you beat the rival on, <b>−1</b> for each row you " +
+      "lose. Take all three and that's a <b>scoop</b>, worth a further <b>+3</b>. <b>Royalties</b> for strong hands " +
+      "(below) are <b>netted</b> against the rival's, so a big hand pays only as far as it beats what it made in " +
+      "that row. A <b>foul</b> hands over all three rows and every royalty of yours — and still owes the rival theirs.</p>" +
       "<table class='pt'>" +
-      "<tr><td><b>Top</b> · pair TT→AA (½-steps) / trips</td><td>1→3 / 4→6</td></tr>" +
-      "<tr><td><b>Mid</b> · trips / straight / flush</td><td>1 / 1.5 / 2</td></tr>" +
-      "<tr><td><b>Mid</b> · full house / quads</td><td>3 / 4</td></tr>" +
-      "<tr><td><b>Mid</b> · str.flush / royal</td><td>5 / 6</td></tr>" +
-      "<tr><td><b>Bot</b> · straight / flush</td><td>0.5 / 1</td></tr>" +
-      "<tr><td><b>Bot</b> · full house / quads</td><td>1.5 / 3</td></tr>" +
-      "<tr><td><b>Bot</b> · str.flush / royal</td><td>4 / 5</td></tr>" +
+      "<tr><td><b>Top</b> · pair 66→AA</td><td>1→9</td></tr>" +
+      "<tr><td><b>Top</b> · trips 222→AAA</td><td>10→22</td></tr>" +
+      "<tr><td><b>Mid</b> · trips / straight / flush</td><td>2 / 4 / 8</td></tr>" +
+      "<tr><td><b>Mid</b> · full house / quads</td><td>12 / 20</td></tr>" +
+      "<tr><td><b>Mid</b> · str.flush / royal</td><td>30 / 50</td></tr>" +
+      "<tr><td><b>Bot</b> · straight / flush</td><td>2 / 4</td></tr>" +
+      "<tr><td><b>Bot</b> · full house / quads</td><td>6 / 10</td></tr>" +
+      "<tr><td><b>Bot</b> · str.flush / royal</td><td>15 / 25</td></tr>" +
       "</table>",
 
     RANKS: ["2","3","4","5","6","7","8","9","10","J","Q","K","A"],
@@ -429,26 +492,25 @@
     },
     cmp: function (a, b) { for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] - b[i]; } return 0; },
 
-    // Compressed but GRADED royalties: everyday hands stay in the head-to-head
-    // band (~±6) so they don't swamp the row-by-row contest, while each hand tier
-    // is still rewarded distinctly — so reaching a higher hand always pays more.
-    // Half-point steps keep the ceiling at ~6 (consistent with the fractional
-    // row scores). Bottom pays notably less than middle for the "middle-loadable"
-    // hands (straight/flush/full) to reward the harder middle placement and pull
-    // boards apart on solvable deals; monster bottoms (quads+) keep their jackpot
-    // since you can't realistically middle-load them anyway.
+    // The standard OFC royalty table — the real numbers, not a house scale.
+    // They don't need compressing here because they are NETTED against the
+    // rival's: a monster only pays to the extent it beats what the rival made
+    // in the same row, and the rival is holding cards from the same deck.
     royTop: function (e) {
-      if (e[0] === 3) return 4 + Math.floor(e[1] / 6);             // trips up top (rare): 4→6 by rank
-      if (e[0] === 1) return e[1] >= 8 ? (e[1] - 8) * 0.5 + 1 : 0; // pair TT..AA: 1, 1.5, 2, 2.5, 3
+      if (!e || e.length < 2) return 0;
+      if (e[0] === 3) return 10 + e[1];                 // trips 222=10 … AAA=22
+      if (e[0] === 1) return e[1] >= 4 ? e[1] - 3 : 0;  // pair 66=1 … AA=9
       return 0;
     },
-    royMid: function (e) {
-      switch (e[0]) { case 8: return e[1] === 12 ? 6 : 5; case 7: return 4; case 6: return 3;
-        case 5: return 2; case 4: return 1.5; case 3: return 1; default: return 0; }
+    royMid: function (e) {                              // exactly double the bottom
+      if (!e) return 0;
+      switch (e[0]) { case 8: return e[1] === 12 ? 50 : 30; case 7: return 20; case 6: return 12;
+        case 5: return 8; case 4: return 4; case 3: return 2; default: return 0; }
     },
     royBot: function (e) {
-      switch (e[0]) { case 8: return e[1] === 12 ? 5 : 4; case 7: return 3; case 6: return 1.5;
-        case 5: return 1; case 4: return 0.5; default: return 0; }
+      if (!e) return 0;
+      switch (e[0]) { case 8: return e[1] === 12 ? 25 : 15; case 7: return 10; case 6: return 6;
+        case 5: return 4; case 4: return 2; default: return 0; }
     },
 
     // place is length-17 over the dealt cards: 0=top, 1=middle, 2=bottom, 3=discard.
@@ -485,57 +547,115 @@
       return r > 0 ? "+" + s : r < 0 ? "−" + s : "0";
     },
 
-    // Score the whole field for a day. list = [{addr, place}]. Each player's daily
-    // score = (average head-to-head row points vs everyone else) + royalties.
-    // Per opponent a row is +1 win / −1 loss / 0 tie, averaged across the field — but
-    // each row's average is clamped at 0, so you're rewarded for rows you win and never
-    // punished for ones you lose. Then +1 for a clean board (not fouling) and +1 for
-    // sweeping all three rows off everyone. Result is always ≥ 0, so any clean board
-    // beats a foul (which wins nothing and earns no bonuses → 0). Computed locally on
-    // every device, so it converges. The per-row split + bonuses are kept for display.
+    // ---- the rival ------------------------------------------------------
+    // Everyone in the chat plays the same deal against the SAME rival, so a
+    // score is absolute: it means the same thing for every player and it is
+    // final the moment you finish, instead of drifting as more people play.
+    // The rival is deliberately blind to your board — if it reacted to each
+    // player's cards, every player would face a different line and the scores
+    // would stop being comparable, which is the whole point.
+    RIVAL_AT: 17,                                     // rival's 17 cards start here in the deck
+    rivalCards: function (deck) { return deck.slice(this.RIVAL_AT, this.RIVAL_AT + 17); },
+    ORD: 6, ROYW: 0.7, GROW: 5.5, HILO: 0.15,         // tuned: ~6% foul rate over 730 deals
+    stOf: function (e) { return e ? e[0] * 13 + (e[1] < 0 ? 0 : e[1]) : -1; },
+    projected: function (cs, cap) { return this.stOf(this.evalHand(cs)) + (cap - cs.length) * this.GROW; },
+    // Score a candidate board. Rows are judged by what they can still BECOME,
+    // not just what they hold — comparing half-built rows by their made hands
+    // is meaningless mid-hand and was what made earlier versions foul wildly.
+    botScore: function (t, m, b) {
+      var et = this.evalHand(t), em = this.evalHand(m), eb = this.evalHand(b), s = 0;
+      if (t.length >= this.CAPS[0] && m.length >= this.CAPS[1] && this.cmp(et, em) > 0) s -= 100000;
+      if (m.length >= this.CAPS[1] && b.length >= this.CAPS[2] && this.cmp(em, eb) > 0) s -= 100000;
+      var pT = this.projected(t, this.CAPS[0]), pM = this.projected(m, this.CAPS[1]), pB = this.projected(b, this.CAPS[2]);
+      if (pT > pM) s -= (pT - pM) * this.ORD;
+      if (pM > pB) s -= (pM - pB) * this.ORD;
+      if (et) s += this.royTop(et) * (t.length / this.CAPS[0]) * this.ROYW;
+      if (em) s += this.royMid(em) * (m.length / this.CAPS[1]) * this.ROYW;
+      if (eb) s += this.royBot(eb) * (b.length / this.CAPS[2]) * this.ROYW;
+      var self = this;
+      b.forEach(function (c) { s += c.r * self.HILO; });
+      t.forEach(function (c) { s -= c.r * self.HILO * 1.3; });
+      return s;
+    },
+    // The rival's whole line, derived from the deck alone. Pure and
+    // deterministic, so every device computes an identical rival with nothing
+    // sent over the wire.
+    rivalPlace: function (deck) {
+      var cards = this.rivalCards(deck), rows = [[], [], []], place = [], i, best, bestS, mask, x, a, t, m, b, s;
+      for (i = 0; i < 17; i++) place.push(null);
+      best = null; bestS = -Infinity;
+      for (mask = 0; mask < 243; mask++) {            // all assignments of the opening 5
+        a = []; x = mask;
+        for (i = 0; i < 5; i++) { a.push(x % 3); x = Math.floor(x / 3); }
+        t = []; m = []; b = [];
+        for (i = 0; i < 5; i++) (a[i] === 0 ? t : a[i] === 1 ? m : b).push(cards[i]);
+        if (t.length > this.CAPS[0]) continue;
+        s = this.botScore(t, m, b);
+        if (s > bestS) { bestS = s; best = a; }        // first best wins → deterministic
+      }
+      for (i = 0; i < 5; i++) { place[i] = best[i]; rows[best[i]].push(cards[i]); }
+      for (var r = 0; r < 4; r++) {                    // each round: keep 2 of 3, toss 1
+        var base = 5 + 3 * r, three = [cards[base], cards[base + 1], cards[base + 2]], mv = null;
+        bestS = -Infinity;
+        for (var toss = 0; toss < 3; toss++) {
+          var keep = [0, 1, 2].filter(function (q) { return q !== toss; });
+          for (var ra = 0; ra < 3; ra++) for (var rb = 0; rb < 3; rb++) {
+            var tt = rows[0].slice(), mm = rows[1].slice(), bb = rows[2].slice(), dst = [tt, mm, bb];
+            if (dst[ra].length >= this.CAPS[ra]) continue; dst[ra].push(three[keep[0]]);
+            if (dst[rb].length >= this.CAPS[rb]) continue; dst[rb].push(three[keep[1]]);
+            s = this.botScore(tt, mm, bb);
+            if (s > bestS) { bestS = s; mv = { toss: toss, keep: keep, rows: [ra, rb] }; }
+          }
+        }
+        if (!mv) break;
+        place[base + mv.toss] = 3;
+        for (i = 0; i < 2; i++) { var k = mv.keep[i], row = mv.rows[i]; place[base + k] = row; rows[row].push(three[k]); }
+      }
+      return place;
+    },
+    rivalBoard: function (deck) {
+      var cards = this.rivalCards(deck), place = this.rivalPlace(deck);
+      var top = [], mid = [], bot = [];
+      for (var i = 0; i < place.length; i++) {
+        if (place[i] === 0) top.push(cards[i]); else if (place[i] === 1) mid.push(cards[i]); else if (place[i] === 2) bot.push(cards[i]);
+      }
+      return { top: top, mid: mid, bot: bot };
+    },
+    boardInfo: function (rows) {
+      var et = this.evalHand(rows.top), em = this.evalHand(rows.mid), eb = this.evalHand(rows.bot);
+      var fouled = !(et && em && eb && this.cmp(eb, em) >= 0 && this.cmp(em, et) >= 0);
+      var rr = fouled ? [0, 0, 0] : [this.royTop(et), this.royMid(em), this.royBot(eb)];
+      return { et: et, em: em, eb: eb, fouled: fouled, royRows: rr, roy: rr[0] + rr[1] + rr[2] };
+    },
+
+    // Score every player for a day — each one purely against the rival, using
+    // standard OFC 1-6 scoring. +1 per row won, −1 per row lost, +3 more for
+    // taking all three (a scoop). Royalties net against the rival's, so a big
+    // hand pays only to the extent it beats what the rival made in that row.
+    // A foul surrenders all three rows and every royalty of yours, and still
+    // owes the rival theirs. Nobody's score depends on who else played.
     scoreField: function (deck, list) {
       var self = this;
-      var info = list.map(function (e) {
-        var rows = self.rowsFromPlace(deck, e.place);
-        var et = self.evalHand(rows.top), em = self.evalHand(rows.mid), eb = self.evalHand(rows.bot);
-        var fouled = !(self.cmp(eb, em) >= 0 && self.cmp(em, et) >= 0);
-        var roy = fouled ? 0 : self.royTop(et) + self.royMid(em) + self.royBot(eb);
-        return { addr: e.addr, et: et, em: em, eb: eb, fouled: fouled, roy: roy };
+      var rival = self.boardInfo(self.rivalBoard(deck));
+      return list.map(function (e) {
+        var y = self.boardInfo(self.rowsFromPlace(deck, e.place));
+        var o = { addr: e.addr, et: y.et, em: y.em, eb: y.eb, fouled: y.fouled, roy: y.roy,
+                  royRows: y.royRows, rival: rival, rows: [0, 0, 0], rowPts: 0, scoop: 0, royNet: 0, score: 0 };
+        if (y.fouled && rival.fouled) return o;                       // both foul: nothing changes hands
+        if (y.fouled) { o.rows = [-1, -1, -1]; o.rowPts = -3; o.scoop = -3; o.royNet = -rival.roy; o.score = -6 - rival.roy; return o; }
+        if (rival.fouled) { o.rows = [1, 1, 1]; o.rowPts = 3; o.scoop = 3; o.royNet = y.roy; o.score = 6 + y.roy; return o; }
+        var pairs = [[y.et, rival.et], [y.em, rival.em], [y.eb, rival.eb]], won = 0, lost = 0;
+        for (var i = 0; i < 3; i++) {
+          var d = self.cmp(pairs[i][0], pairs[i][1]);
+          o.rows[i] = d > 0 ? 1 : d < 0 ? -1 : 0;
+          if (d > 0) won++; else if (d < 0) lost++;
+        }
+        o.rowPts = o.rows[0] + o.rows[1] + o.rows[2];
+        if (won === 3) o.scoop = 3; else if (lost === 3) o.scoop = -3;
+        o.royNet = y.roy - rival.roy;
+        o.score = o.rowPts + o.scoop + o.royNet;
+        return o;
       });
-      info.forEach(function (x) {
-        var n = 0, cmpT = 0, cmpM = 0, cmpB = 0;
-        var sweptAll = true;   // did x take all three rows off EVERY opponent it played?
-        info.forEach(function (y) {
-          if (x === y) return;
-          n++;
-          if (x.fouled && y.fouled) return;                    // both foul: nothing exchanged
-          if (x.fouled) { cmpT--; cmpM--; cmpB--; return; }    // x loses every row to clean y
-          if (y.fouled) { cmpT++; cmpM++; cmpB++; return; }    // a foul auto-loses all three rows to x — still a sweep of them
-          var t = self.cmp(x.et, y.et), m = self.cmp(x.em, y.em), b = self.cmp(x.eb, y.eb);
-          var xw = 0;
-          if (t > 0) { cmpT++; xw++; } else if (t < 0) cmpT--;
-          if (m > 0) { cmpM++; xw++; } else if (m < 0) cmpM--;
-          if (b > 0) { cmpB++; xw++; } else if (b < 0) cmpB--;
-          if (xw < 3) sweptAll = false;                        // lost or tied a row to this clean rival — not a field sweep
-        });
-        if (n) { cmpT /= n; cmpM /= n; cmpB /= n; }
-        // Clean-board bonus: a flat +1 just for finishing a legal board (Bottom ≥ Mid ≥ Top).
-        // Rewards showing up and not fouling, so a clean board that wins no rows still scores +1.
-        var clean = x.fouled ? 0 : 1;
-        // Sweep bonus: a single flat +1 for taking all three rows off EVERYONE you played
-        // (a foul counts as beaten on all three). A true whole-field sweep — never partial.
-        var scoop = (!x.fouled && n >= 1 && sweptAll) ? 1 : 0;
-        // Only rows you're AHEAD on (and the bonuses) add points — a row you're behind on
-        // scores 0, never negative. So a clean board can't drop below 0 (no floor needed),
-        // and you're never punished for a weak row — only rewarded for a strong one.
-        cmpT = Math.max(0, cmpT); cmpM = Math.max(0, cmpM); cmpB = Math.max(0, cmpB);
-        x.rowCmp = [cmpT, cmpM, cmpB];          // per-row points (0 when behind), top/mid/bottom
-        x.clean = clean;                         // clean-board bonus: +1 for not fouling, else 0
-        x.scoop = scoop;                         // sweep bonus: +1 for sweeping the whole field, else 0
-        x.rowAvg = cmpT + cmpM + cmpB + scoop;   // head-to-head component, always ≥ 0
-        x.score = x.rowAvg + x.roy + clean;      // already ≥ 0 — no floor
-      });
-      return info;
     },
 
     render: function (root, puzzle, ctx) {
@@ -562,21 +682,49 @@
         return html + '</div>';
       }
 
-      // Result headline (the daily Score) + a short breakdown.
-      function outcomeBlock(score, roy, fouled, rank, n, rowAvg) {
-        var head = fouled
-          ? '<div class="instruct foul">Fouled · 0</div>'
-          : '<div class="instruct ' + (score > 0 ? 'win' : '') + '">Score ' + G.fmtScore(score) + '</div>';
-        var detail;
-        if (n <= 1) {
-          detail = fouled ? 'First in today — your rank fills in as others play.'
-            : 'First in today (royalties +' + roy + ') — your rank fills in as others play.';
-        } else if (fouled) {
-          detail = '#' + rank + ' of ' + n + ' today';
-        } else {
-          detail = '#' + rank + ' of ' + n + ' today · rows ' + G.fmtScore(Math.round((rowAvg || 0) * 10) / 10) + ' · royalties +' + roy;
+      // The rival's board, revealed as far as `n` of its 17 cards. It acts
+      // before you each round, so you always get to see its answer to the deal
+      // before committing yours — and every card it shows is one that can no
+      // longer come to you. Its discards stay face down, as in real Pineapple.
+      var rivalCards = G.rivalCards(deck), rivalPlace = G.rivalPlace(deck);
+      function rivalPanel(n) {
+        var rows = [[], [], []], hidden = 0, seen = 0;
+        for (var i = 0; i < n && i < 17; i++) {
+          var p = rivalPlace[i];
+          if (p === 0 || p === 1 || p === 2) { rows[p].push(rivalCards[i]); seen++; }
+          else if (p === 3) hidden++;
         }
-        return head + '<div class="subhint">' + detail + '</div>';
+        var done = n >= 17, info = done ? G.boardInfo({ top: rows[0], mid: rows[1], bot: rows[2] }) : null;
+        var labels = ["TOP", "MID", "BOT"];
+        var html = '<div class="rival"><div class="rivalhead"><span class="who">\u{1F916} RIVAL</span>' +
+          '<span class="rtot">' + (done ? (info.fouled ? "FOULED" : "royalties " + (info.roy || 0))
+            : seen + " shown" + (hidden ? " · " + hidden + " face down" : "")) + '</span></div>';
+        for (var r = 0; r < 3; r++) {
+          var cs = rows[r], cells = "";
+          for (var k = 0; k < G.CAPS[r]; k++) cells += k < cs.length ? mcard(cs[k]) : '<span class="rslot"></span>';
+          var roy = done && !info.fouled ? info.royRows[r] : 0;
+          html += '<div class="rrow"><span class="rlab">' + labels[r] + '</span>' +
+            '<span class="rcards">' + cells + '</span>' +
+            '<span class="rname">' + (cs.length ? G.handName(G.evalHand(cs)) : "—") +
+            (roy ? ' <b>+' + roy + '</b>' : "") + '</span></div>';
+        }
+        return html + '</div>';
+      }
+
+      // Result headline (the daily Score) + a short breakdown.
+      function outcomeBlock(row, rank, n) {
+        var score = row ? row.score : 0, fouled = row ? row.fouled : false;
+        var head = '<div class="instruct ' + (fouled ? "foul" : score > 0 ? "win" : "") + '">' +
+          (fouled ? "Fouled · " : "Score ") + G.fmtScore(score) + '</div>';
+        var bits = [];
+        if (n > 1) bits.push('#' + rank + ' of ' + n + ' today');
+        if (row && !fouled) {
+          bits.push('rows ' + G.fmtScore(row.rowPts || 0));
+          if (row.scoop) bits.push(row.scoop > 0 ? 'scoop +3' : 'scooped on −3');
+          if (row.royNet) bits.push('royalties ' + G.fmtScore(row.royNet));
+        }
+        if (n <= 1) bits.push('first in today');
+        return head + '<div class="subhint">' + bits.join(' · ') + '</div>';
       }
 
       // ---------- read-only view (past day, or already played today) ----------
@@ -587,12 +735,8 @@
         if (prev && prev.place) {
           var rows = G.rowsFromPlace(deck, prev.place);
           var res = G.scoreBoard(rows.top, rows.mid, rows.bot);
-          var score = selfRow ? selfRow.score : (res.fouled ? 0 : res.score);
-          var roy = selfRow ? selfRow.roy : (res.fouled ? 0 : res.score);
-          var fouled = selfRow ? selfRow.fouled : res.fouled;
-          var rowAvg = selfRow ? selfRow.rowAvg : 0;
-          root.innerHTML = '<div class="ofc">' + resultBoard(rows, res.fouled) +
-            outcomeBlock(score, roy, fouled, rank, dayRows.length, rowAvg) + '</div>';
+          root.innerHTML = '<div class="ofc">' + rivalPanel(17) + resultBoard(rows, res.fouled) +
+            outcomeBlock(selfRow, rank, dayRows.length) + '</div>';
         } else if (prev) {
           var line = dayRows.length > 1
             ? 'Score ' + G.fmtScore(selfRow ? selfRow.score : 0) + ' · #' + rank + ' of ' + dayRows.length + ' today'
@@ -674,13 +818,41 @@
         ];
       }
 
+      // The rival's board as far as it has been REVEALED — never further, so
+      // this can't leak cards it hasn't shown yet.
+      function rivalSeenCount() { return (phase === "opening") ? 5 : Math.min(17, 5 + 3 * (roundIdx + 1)); }
+      function rivalShownRows() {
+        var n = rivalSeenCount(), rows = [[], [], []];
+        for (var i = 0; i < n && i < 17; i++) {
+          var p = rivalPlace[i];
+          if (p === 0 || p === 1 || p === 2) rows[p].push(rivalCards[i]);
+        }
+        return rows;
+      }
+      // How this row currently stands against the rival's SAME row — the thing
+      // you're actually being scored on. Only shown once the rival's row is
+      // finished, since a half-built row isn't a real target yet.
+      function vsRival(row, cs) {
+        var rr = rivalShownRows()[row];
+        if (rr.length < G.CAPS[row] || !cs.length) return "";
+        // Always name the RIVAL's hand with a verb, so it reads as the thing you're
+        // up against rather than a hand you're being told to make.
+        var theirs = G.handName(G.evalHand(rr));
+        var d = G.cmp(G.evalHand(cs), G.evalHand(rr));
+        if (d > 0) return '<span class="vs ahead">▲ beats ' + theirs + '</span>';
+        if (d === 0) return '<span class="vs level">= ties ' + theirs + '</span>';
+        // once your row is full there is nothing left that can change it
+        var settled = cs.length >= G.CAPS[row];
+        return '<span class="vs behind">▼ ' + (settled ? 'lost to ' : 'must beat ') + theirs + '</span>';
+      }
       function boardRow(row, warn) {
         var cap = G.CAPS[row], cs = rowCards(row), full = cs.length >= cap;
         var canPlace = selIdx != null && !full && !complete();
         var slots = "";
         for (var i = 0; i < cap; i++) slots += i < cs.length ? bcard(cs[i]) : '<div class="slot"></div>';
         return '<div class="brow' + (canPlace ? " tappable" : "") + (full ? " full" : "") + '"' + (canPlace ? ' data-row="' + row + '"' : "") + '>' +
-          '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made ' + (warn || "") + '">' + rowLabel(cs) + '</span></div>' +
+          '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made ' + (warn || "") + '">' + rowLabel(cs) + '</span>' +
+          vsRival(row, cs) + '</div>' +
           '<div class="slots">' + slots + '</div></div>';
       }
 
@@ -703,7 +875,8 @@
         var cnt = counts();
         var proceedLabel = phase === "opening" ? "Deal round 1 ▸" : lastRound ? "Submit board ✓" : "Deal round " + (roundIdx + 2) + " ▸";
         var fs = foulStates();
-        root.innerHTML = '<div class="ofc">' +
+        // the rival is always one reveal ahead of you — that's the information edge
+        root.innerHTML = '<div class="ofc">' + rivalPanel(rivalSeenCount()) +
           '<div class="board">' + boardRow(0, fs[0]) + boardRow(1, fs[1]) + boardRow(2, fs[2]) + '</div>' +
           '<div class="toplace"><div class="curlabel">' + label + '</div>' +
             '<div class="tray">' + tray + '</div>' +
@@ -738,9 +911,10 @@
         roundIdx++; paint();
       }
       function finish() {
-        var rows = { top: rowCards(0), mid: rowCards(1), bot: rowCards(2) };
-        var res = G.scoreBoard(rows.top, rows.mid, rows.bot);
-        ctx.toast(res.fouled ? "Fouled — rows out of order" : "Royalties +" + res.score);
+        var mine = { top: rowCards(0), mid: rowCards(1), bot: rowCards(2) };
+        var sc = G.scoreField(deck, [{ addr: ctx.self, place: place.slice() }])[0];
+        ctx.toast(sc.fouled ? "Fouled — rows out of order"
+          : sc.scoop > 0 ? "Scoop! " + G.fmtScore(sc.score) : G.fmtScore(sc.score) + " vs the rival");
         ctx.submit({ place: place.slice() });
       }
       paint();
@@ -762,33 +936,37 @@
       }
       var ev = [this.evalHand(rows.top), this.evalHand(rows.mid), this.evalHand(rows.bot)];
       var nm = [this.handName(ev[0]), this.handName(ev[1]), this.handName(ev[2])];
-      // Every board renders the same: per-row (comparison + royalty) with a subtotal,
-      // the sweep line, and the total up in the header. A foul just carries its real
-      // negative row losses, earns no royalties, and floors to 0.
-      var roy = r.fouled ? [0, 0, 0] : [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])];
-      var cmp = r.rowCmp || [0, 0, 0];
+      // Each row shows what you made, what the rival made, and the point that
+      // row won or lost — then the scoop and the netted royalties beneath.
+      var rival = r.rival || this.boardInfo(this.rivalBoard(deck));
+      var rEv = [rival.et, rival.em, rival.eb];
+      var roy = r.fouled ? [0, 0, 0] : (r.royRows || [this.royTop(ev[0]), this.royMid(ev[1]), this.royBot(ev[2])]);
+      var pts = r.rows || [0, 0, 0];
       var arr = [rows.top, rows.mid, rows.bot];
       var rowsHTML = arr.map(function (cs, i) {
-        var sub = Math.round((cmp[i] + roy[i]) * 10) / 10;
+        var p = pts[i];
         return '<div class="prow">' + miniRow(cs) +
-          '<span class="pname">' + esc(nm[i]) + '</span>' +
-          '<span class="pcmp">rows ' + GAME.fmtScore(cmp[i]) + ' · roy ' + (roy[i] ? '+' + roy[i] : '0') + '</span>' +
-          '<span class="psub">' + GAME.fmtScore(sub) + '</span></div>';
+          '<span class="pname">' + esc(nm[i]) + (roy[i] ? ' <b class="proy">+' + roy[i] + '</b>' : "") + '</span>' +
+          '<span class="pcmp">' + (p > 0 ? "beat" : p < 0 ? "lost to" : "tied") + ' ' + esc(GAME.handName(rEv[i])) +
+          (rival.royRows[i] ? ' +' + rival.royRows[i] : "") + '</span>' +
+          '<span class="psub">' + GAME.fmtScore(p) + '</span></div>';
       }).join("");
       var extra = "";
-      if (!r.fouled) extra += '<div class="prow xtra"><span class="pname">Clean board — completed in order</span>' +
-        '<span class="psub">' + GAME.fmtScore(r.clean != null ? r.clean : 1) + '</span></div>';
-      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">Sweep bonus — beat everyone on all three rows</span>' +
+      if (r.scoop) extra += '<div class="prow xtra"><span class="pname">' +
+        (r.scoop > 0 ? "Scoop — all three rows off the rival" : "Scooped on — lost all three") + '</span>' +
         '<span class="psub">' + GAME.fmtScore(r.scoop) + '</span></div>';
-      var note = r.fouled ? '<div class="pcalc flr">fouled — no rows won</div>' : "";
+      if (r.royNet) extra += '<div class="prow xtra"><span class="pname">Royalties — ' + (r.roy || 0) +
+        ' v rival ' + (rival.roy || 0) + '</span><span class="psub">' + GAME.fmtScore(r.royNet) + '</span></div>';
+      var note = r.fouled ? '<div class="pcalc flr">fouled — every row and royalty forfeited</div>'
+        : (rival.fouled ? '<div class="pcalc">the rival fouled — all three rows to you</div>' : "");
       return '<div class="play">' + rowsHTML + extra + note + '</div>';
     },
 
     // OVERALL "Avg" column: average daily score (signed, 1 decimal).
     formatAvg: function (mean) { return GAME.fmtScore(Math.round(mean * 10) / 10); },
 
-    scoreHelp: "Score = head-to-head row wins vs the field (+1 per row), averaged, plus +1 for a clean board, " +
-      "+1 for sweeping everyone, and royalty bonuses. A foul loses every row. 🏆 = days you topped · 🔥 = days played in a row."
+    scoreHelp: "Everyone plays the same deal against the same rival. +1 per row you beat it on, −1 per row you lose, " +
+      "+3 more for all three, plus royalties netted against its own. 🏆 = days you topped · 🔥 = days played in a row."
   };
   // ===================================================================
   // ===== END GAME ADAPTER. Generic framework below. ==================
@@ -880,9 +1058,9 @@
     if (name) r.name = name;
     if (!r.days[day]) r.days[day] = res;
   }
-  // Head-to-head scoring: every player's board for the day is compared against
-  // the whole field (via GAME.scoreField) and ranked. Recomputed locally on
-  // each device, so all peers converge once they've synced the same boards.
+  // Every player's board for the day is scored against the SAME rival (via
+  // GAME.scoreField), so a score is absolute — it never changes because
+  // somebody else played, and two players' scores are directly comparable.
   function dailyRows(day) {
     var list = [];
     for (var a in results) { var d = results[a].days[day]; if (d && d.place) list.push({ addr: a, name: results[a].name, place: d.place }); }
@@ -891,7 +1069,8 @@
     var info = GAME.scoreField(deck, list);
     var rows = list.map(function (e, i) {
       return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled,
-        roy: info[i].roy, rowCmp: info[i].rowCmp, clean: info[i].clean, scoop: info[i].scoop, rowAvg: info[i].rowAvg };
+        roy: info[i].roy, royRows: info[i].royRows, rows: info[i].rows, rowPts: info[i].rowPts,
+        scoop: info[i].scoop, royNet: info[i].royNet, rival: info[i].rival };
     });
     // Sort by score; break exact ties by address so every device orders them the same.
     rows.sort(function (x, y) { return (y.score - x.score) || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0); });
