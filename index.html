@@ -354,7 +354,7 @@
     <div id="handRank"></div>
     <h2 id="helpTitle">How to play</h2>
     <div id="helpBody"></div>
-    <p style="color:var(--muted)">Only today's puzzle can be played — use the ‹ › arrows to look back at earlier days and their results. A fresh deal drops every day at midnight in the chat's chosen timezone.</p>
+    <p style="color:var(--muted)">Only today's deal can be played. Use ‹ › to look back at earlier days. A new deal drops at midnight.</p>
   </div>
 </div>
 
@@ -401,28 +401,24 @@
       "</ol>",
 
     helpHTML:
-      "<p><b>Open-Face Chinese poker</b> (Pineapple). Build three rows that must rank " +
-      "<b>Bottom ≥ Middle ≥ Top</b> in poker strength, or you <b>FOUL</b>:</p>" +
-      "<ul><li><b>Bottom</b> (5 cards) — your <i>strongest</i> hand</li>" +
-      "<li><b>Middle</b> (5 cards)</li>" +
-      "<li><b>Top</b> (3 cards) — the weakest</li></ul>" +
-      "<p><b>The deal:</b> you're dealt 5 cards and place all five. Then four rounds of " +
-      "<b>deal 3 · place 2 · toss 1</b>. Placed cards are locked, and you place before seeing the next round — " +
-      "so chasing a big bottom can leave you unable to keep order. Everyone in the chat gets the same cards.</p>" +
-      "<p><b>You play the rival, not each other.</b> The whole chat faces the same rival on the same deal, " +
-      "and it acts <i>before</i> you every round — so you can see exactly what you have to beat, row by row, " +
-      "while you still have cards to place. Every card it shows is also a card that can no longer come to you. " +
-      "Its tossed cards stay face down, as in the real game.</p>" +
-      "<p>Because your score is measured against the rival and nothing else, it is <b>final the moment you " +
-      "finish</b> — it can't move because somebody else played later, and any two scores are directly " +
-      "comparable. The leaderboard is just everyone's score against the same opponent.</p>" +
-      "<p><b>While you build:</b> a row turns <span class='riskword'>red</span> when it's out of order with a " +
-      "neighbour and you can still fix it — that's normal mid-build, since a low row is often behind until you fill " +
-      "it (green = safely in order). Only the <i>final</i> board has to hold Bottom ≥ Middle ≥ Top.</p>" +
-      "<p><b>Scoring (standard OFC):</b> <b>+1</b> for each row you beat the rival on, <b>−1</b> for each row you " +
-      "lose. Take all three and that's a <b>scoop</b>, worth a further <b>+3</b>. <b>Royalties</b> for strong hands " +
-      "(below) are <b>netted</b> against the rival's, so a big hand pays only as far as it beats what it made in " +
-      "that row. A <b>foul</b> hands over all three rows and every royalty of yours — and still owes the rival theirs.</p>" +
+      "<p>Build three rows. <b>Bottom</b> (5 cards) must be at least as strong as <b>Middle</b> " +
+      "(5 cards), which must be at least as strong as <b>Top</b> (3 cards). Out of order is a " +
+      "<b>foul</b>.</p>" +
+      "<p><b>The deal.</b> Place all 5 opening cards. Then four rounds of <b>deal 3 · place 2 · toss 1</b>. " +
+      "Placed cards are locked.</p>" +
+      "<p><b>The rival.</b> Everyone in the chat plays the same deal against the same rival. It places " +
+      "before you each round, so you can see what you have to beat. Its tossed cards stay face down.</p>" +
+      "<p><b>Row colours.</b> <span class='riskword'>Red</span> = out of order with a neighbour, and you " +
+      "can still fix it. Green = in order. Only the final board has to hold the order.</p>" +
+      "<p><b>Row labels.</b> “must beat Pair 4” is the rival's hand in that row. “lost to Pair 4” means " +
+      "your row is full and lost it.</p>" +
+      "<p><b>Scoring</b></p>" +
+      "<ul><li><b>+1</b> for each row you beat the rival on, <b>−1</b> for each row you lose</li>" +
+      "<li>All three rows is a <b>scoop</b>: <b>+3</b> more</li>" +
+      "<li>Plus your royalties, minus the rival's</li>" +
+      "<li><b>Foul: −6</b>, and you still owe the rival's royalties</li>" +
+      "<li>Equal scores are settled by playing the tied boards against each other</li></ul>" +
+      "<p><b>Royalties</b></p>" +
       "<table class='pt'>" +
       "<tr><td><b>Top</b> · pair 66→AA</td><td>1→9</td></tr>" +
       "<tr><td><b>Top</b> · trips 222→AAA</td><td>10→22</td></tr>" +
@@ -988,8 +984,8 @@
     // OVERALL "Avg" column: average daily score (signed, 1 decimal).
     formatAvg: function (mean) { return GAME.fmtScore(Math.round(mean * 10) / 10); },
 
-    scoreHelp: "Everyone plays the same deal against the same rival. +1 per row you beat it on, −1 per row you lose, " +
-      "+3 more for all three, plus royalties netted against its own. 🏆 = days you topped · 🔥 = days played in a row."
+    scoreHelp: "+1 per row you beat the rival on, −1 per row you lose, +3 for all three, " +
+      "plus your royalties minus the rival's. 🏆 = days you topped · 🔥 = days played in a row."
   };
   // ===================================================================
   // ===== END GAME ADAPTER. Generic framework below. ==================
