@@ -157,8 +157,13 @@
   .modal h3 { margin:16px 0 4px; font-size:14px; }
   .modal p, .modal li { font-size:13px; line-height:1.62; }
   .modal .muted { color:var(--muted); }
-  .closebar { display:flex; justify-content:flex-end; }
-  .x { border:none; background:transparent; color:var(--muted); font-size:26px; cursor:pointer; line-height:1; padding:0; }
+  .closebar { display:flex; justify-content:flex-end; margin:-6px -6px 0 0; }
+  /* 44px is the minimum comfortable thumb target — the old X was a bare glyph
+     with no padding, so it was easy to miss even once it worked. */
+  .x { border:none; background:transparent; color:var(--muted); font-size:26px; cursor:pointer;
+       line-height:1; width:44px; height:44px; display:flex; align-items:center; justify-content:center;
+       border-radius:50%; flex:0 0 44px; }
+  .x:active { background:rgba(127,127,127,.18); }
   .riskword { color:var(--bad); font-weight:700; }
   table.pt { width:100%; border-collapse:collapse; margin-top:8px; font-size:12px; }
   table.pt td { padding:4px 6px; border-bottom:1px solid var(--line); }
@@ -878,10 +883,17 @@
 
   $("btnHelp").addEventListener("click", function () { $("ovHelp").classList.add("on"); });
   $("btnStats").addEventListener("click", openStats);
+  // Walk up to the .overlay itself — that's what carries the `on` class. Counting
+  // parentNodes is what broke this before: it landed on .modal, one level short.
+  function overlayOf(el) { while (el && !(el.classList && el.classList.contains("overlay"))) el = el.parentNode; return el; }
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
-    b.addEventListener("click", function () { b.parentNode.parentNode.classList.remove("on"); }); });
+    b.addEventListener("click", function () { var o = overlayOf(b); if (o) o.classList.remove("on"); }); });
   Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (o) {
     o.addEventListener("click", function (e) { if (e.target === o) o.classList.remove("on"); }); });
+  document.addEventListener("keydown", function (e) {          // Esc closes too
+    if (e.key !== "Escape") return;
+    Array.prototype.forEach.call(document.querySelectorAll(".overlay.on"), function (o) { o.classList.remove("on"); });
+  });
 
   // ---- boot -------------------------------------------------------------
   $("puzzleNo").textContent = "#" + DAY;
