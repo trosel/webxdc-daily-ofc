@@ -628,6 +628,22 @@
       return { et: et, em: em, eb: eb, fouled: fouled, royRows: rr, roy: rr[0] + rr[1] + rr[2] };
     },
 
+    // Standard OFC scoring of one player's board against another's. This is how
+    // the real game scores a table, and it's what settles two players who came
+    // out level against the rival: play their boards off against each other.
+    versus: function (a, b) {
+      if (a.fouled && b.fouled) return 0;
+      if (a.fouled) return -6 - b.roy;
+      if (b.fouled) return 6 + a.roy;
+      var pairs = [[a.et, b.et], [a.em, b.em], [a.eb, b.eb]], pts = 0, won = 0, lost = 0;
+      for (var i = 0; i < 3; i++) {
+        var d = this.cmp(pairs[i][0], pairs[i][1]);
+        if (d > 0) { pts++; won++; } else if (d < 0) { pts--; lost++; }
+      }
+      if (won === 3) pts += 3; else if (lost === 3) pts -= 3;
+      return pts + (a.roy - b.roy);
+    },
+
     // Score every player for a day — each one purely against the rival, using
     // standard OFC 1-6 scoring. +1 per row won, −1 per row lost, +3 more for
     // taking all three (a scoop). Royalties net against the rival's, so a big
@@ -959,6 +975,13 @@
         ' v rival ' + (rival.roy || 0) + '</span><span class="psub">' + GAME.fmtScore(r.royNet) + '</span></div>';
       var note = r.fouled ? '<div class="pcalc flr">fouled — every row and royalty forfeited</div>'
         : (rival.fouled ? '<div class="pcalc">the rival fouled — all three rows to you</div>' : "");
+      // When players finish level on score, say how the head-to-head fell — an
+      // unexplained reordering just looks like a bug.
+      if (r.tiedWith) {
+        var others = r.tiedWith === 1 ? "the other level board" : "the " + r.tiedWith + " other level boards";
+        note += '<div class="pcalc tie">tied on ' + GAME.fmtScore(r.score) + ' · vs ' + others + ': <b>' +
+          GAME.fmtScore(r.h2h) + '</b>' + (r.h2h === 0 ? ' — dead level' : '') + '</div>';
+      }
       return '<div class="play">' + rowsHTML + extra + note + '</div>';
     },
 
@@ -1070,10 +1093,36 @@
     var rows = list.map(function (e, i) {
       return { addr: e.addr, name: e.name, place: e.place, score: info[i].score, fouled: info[i].fouled,
         roy: info[i].roy, royRows: info[i].royRows, rows: info[i].rows, rowPts: info[i].rowPts,
-        scoop: info[i].scoop, royNet: info[i].royNet, rival: info[i].rival };
+        scoop: info[i].scoop, royNet: info[i].royNet, rival: info[i].rival,
+        et: info[i].et, em: info[i].em, eb: info[i].eb, h2h: 0, tiedWith: 0 };
     });
-    // Sort by score; break exact ties by address so every device orders them the same.
+    // Sort by score; break exact ties by address so every device starts from the
+    // same order (and so the head-to-head pass below is reproducible everywhere).
     rows.sort(function (x, y) { return (y.score - x.score) || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0); });
+
+    // Tie-break by playing the level boards off against each other. Scoring only
+    // against the rival produces small integers, so ties are common; when they
+    // happen, the better board should rank higher. Each tied player is scored
+    // against every OTHER tied player and the totals are summed — summing keeps
+    // it a proper ordering even when three or more are level, where raw
+    // "who beat whom" can cycle (A beats B beats C beats A) and has no answer.
+    var i = 0;
+    while (i < rows.length) {
+      var j = i;
+      while (j + 1 < rows.length && rows[j + 1].score === rows[i].score) j++;
+      if (j > i) {
+        for (var k = i; k <= j; k++) {
+          var tot = 0;
+          for (var m = i; m <= j; m++) if (m !== k) tot += GAME.versus(rows[k], rows[m]);
+          rows[k].h2h = tot;
+          rows[k].tiedWith = j - i;                 // how many others matched this score
+        }
+        var seg = rows.slice(i, j + 1);
+        seg.sort(function (x, y) { return (y.h2h - x.h2h) || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0); });
+        for (k = i; k <= j; k++) rows[k] = seg[k - i];
+      }
+      i = j + 1;
+    }
     return rows;
   }
   // ---- seasons (vote-to-reset) ---------------------------------------
@@ -1205,10 +1254,16 @@
     $("lb").innerHTML = rows.map(function (r, i) {
       var mineCls = r.addr === me ? " me" : "";
       var strip = GAME.playStrip ? GAME.playStrip(deck, r) : "";
-      // Rank by score TIER — tied players share a place, and the next distinct score
-      // takes the next medal (5, 5, 1 → 🥇 🥇 🥈). A push (win a row, lose a row, tie
-      // the third) is 0–0, so both share the top spot.
-      var higher = {}; for (var j = 0; j < rows.length; j++) if (rows[j].score > r.score) higher[rows[j].score] = 1;
+      // Rank by TIER, where a tier is (score, head-to-head). Players still share a
+      // medal when they're genuinely level — same score AND their boards drew
+      // against each other — but if the head-to-head separated them, the better
+      // board takes the higher medal. The next distinct tier gets the next medal
+      // (5, 5, 1 → 🥇 🥇 🥈) rather than skipping places.
+      var higher = {};
+      for (var j = 0; j < rows.length; j++) {
+        var o = rows[j];
+        if (o.score > r.score || (o.score === r.score && o.h2h > r.h2h)) higher[o.score + ":" + o.h2h] = 1;
+      }
       var rank = 1 + Object.keys(higher).length;
       return '<div class="lbrow' + mineCls + '"><span class="rank">' + (medalFor(rank) || rank) + '</span>' +
         '<span class="nm">' + esc(r.name) + (mineCls ? " (you)" : "") + '</span>' +
