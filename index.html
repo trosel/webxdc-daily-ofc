@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#4f46e5"/>
+<meta name="description" content="A daily Open-Face Chinese poker puzzle. One deal a day, played out against a rival whose cards you get to watch."/>
+<title>Daily OFC</title>
+<style>
+  :root {
+    --bg:#f3f4f6; --card:#fff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#4f46e5; --accent-dark:#3730a3; --good:#16a34a; --bad:#dc2626;
+    --shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1220; --card:#111a2b; --ink:#e5e7eb; --muted:#9aa4b2; --line:#243149;
+            --shadow:0 1px 3px rgba(0,0,0,.5); }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; padding:0; }
+  body { background:var(--bg); color:var(--ink); min-height:100vh; padding:12px;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         display:flex; flex-direction:column; align-items:center; }
+  .app { width:100%; max-width:440px; }
+
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .brand { display:flex; align-items:baseline; gap:8px; }
+  .brand h1 { margin:0; font-size:23px; letter-spacing:.3px; color:var(--accent); }
+  .brand .puzzle { font-size:13px; color:var(--muted); }
+  .iconbtns { display:flex; gap:6px; }
+  .iconbtn { border:none; background:var(--card); color:var(--ink); width:38px; height:38px;
+             border-radius:10px; font-size:17px; box-shadow:var(--shadow); cursor:pointer; }
+  .iconbtn:active { transform:scale(.94); }
+
+  .panel { background:var(--card); border-radius:16px; box-shadow:var(--shadow); padding:14px; }
+  .panel + .panel { margin-top:10px; }
+
+  /* rival board — compact, read-only */
+  .rival { padding:11px 13px 12px; }
+  .rivalhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
+  .rivalhead .who { font-size:11px; font-weight:800; letter-spacing:.7px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .rivalhead .tot { font-size:10px; color:var(--muted); font-weight:700; }
+  .rrow { display:flex; align-items:center; gap:7px; padding:1px 0; }
+  .rrow .rlab { font-size:9px; font-weight:800; letter-spacing:.5px; color:var(--muted); width:24px; flex:0 0 24px; }
+  .rrow .rcards { display:flex; gap:3px; flex:1; }
+  .rrow .rname { font-size:10px; color:var(--muted); text-align:right; min-width:52px; }
+  .rrow .rname b { color:var(--ink); font-weight:700; }
+  .rroy { color:var(--accent-dark); font-weight:800; }
+  .scard { width:24px; height:33px; border-radius:4px; background:#fcfcfa;
+           display:flex; flex-direction:column; align-items:center; justify-content:center;
+           box-shadow:0 1px 2px rgba(0,0,0,.28); border:1px solid rgba(0,0,0,.12); }
+  .scard .srk { font-size:11px; font-weight:800; line-height:1; }
+  .scard .ssu { font-size:12px; line-height:1; }
+  .scard.red { color:#d11a2a; } .scard.black { color:#181a1f; }
+  .sslot { width:24px; height:33px; border-radius:4px; border:1.5px dashed var(--line); }
+  .rtoss { display:flex; align-items:center; gap:4px; font-size:9px; color:var(--muted); margin-top:6px; flex-wrap:wrap; }
+  .seen { font-size:10px; color:var(--muted); margin-top:7px; padding-top:7px; border-top:1px solid var(--line); line-height:1.6; }
+  .seen b { color:var(--ink); }
+
+  /* your board */
+  .ofc { text-align:center; }
+  .board { display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .board.fouled { outline:2px solid var(--bad); outline-offset:4px; border-radius:12px; }
+  .brow { display:flex; flex-direction:column; align-items:center; gap:3px; padding:5px 6px; border-radius:9px;
+          border:1.5px solid transparent; transition:background .12s,border-color .12s; }
+  .brow .rhead { font-size:10px; font-weight:800; letter-spacing:.6px; color:var(--muted); display:flex; gap:6px; align-items:baseline; }
+  .brow .rhead .made { color:var(--ink); font-weight:700; letter-spacing:0; }
+  .brow .rhead .made.risk { color:var(--bad); }
+  .brow .rhead .made.safe { color:var(--good); }
+  .brow .rhead .vs { font-size:9px; font-weight:800; letter-spacing:0; }
+  .brow .rhead .vs.ahead { color:var(--good); }
+  .brow .rhead .vs.behind, .brow .rhead .vs.level { color:var(--muted); }
+  .pracbar { display:flex; align-items:center; justify-content:space-between; gap:10px;
+             background:rgba(79,70,229,.12); border:1px solid rgba(79,70,229,.35); color:var(--ink);
+             border-radius:11px; padding:7px 11px; margin-bottom:10px; font-size:12px; font-weight:600; }
+  .pracbar a { color:var(--accent); font-weight:800; text-decoration:none; white-space:nowrap; }
+  .slots { display:flex; gap:4px; }
+  .slot { width:40px; height:56px; border-radius:6px; border:1.5px dashed var(--line); }
+  .brow.tappable { cursor:pointer; border-color:rgba(79,70,229,.4); background:rgba(79,70,229,.06); }
+  .brow.tappable:active { transform:scale(.99); }
+  .bcard { width:40px; height:56px; border-radius:6px; background:#fcfcfa;
+           display:flex; flex-direction:column; align-items:center; justify-content:center;
+           box-shadow:0 1px 3px rgba(0,0,0,.3); border:1px solid rgba(0,0,0,.12); }
+  .bcard .brk { font-size:16px; font-weight:800; line-height:1; }
+  .bcard .bsu { font-size:19px; line-height:1; margin-top:1px; }
+  .bcard.red { color:#d11a2a; } .bcard.black { color:#181a1f; }
+
+  .toplace { margin-top:15px; display:flex; flex-direction:column; align-items:center; gap:7px; }
+  .curlabel { font-size:11px; font-weight:800; letter-spacing:.6px; color:var(--muted); }
+  .tray { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+  .trayc { cursor:pointer; border-radius:8px; padding:2px; transition:transform .1s; position:relative; }
+  .trayc.sel { transform:translateY(-5px); }
+  .trayc.sel .bcard { box-shadow:0 0 0 3px var(--accent), 0 5px 12px rgba(0,0,0,.35); }
+  .trayc.toss { cursor:default; opacity:.55; }
+  .trayc.toss .bcard { box-shadow:0 0 0 2px var(--bad); }
+  .tosstag { position:absolute; left:50%; bottom:-3px; transform:translateX(-50%); font-size:8px; font-weight:800;
+             letter-spacing:.5px; color:#fff; background:var(--bad); border-radius:3px; padding:1px 3px; }
+  .discpile { display:flex; align-items:center; gap:3px; justify-content:center; flex-wrap:wrap; font-size:10px; color:var(--muted); margin-top:4px; }
+  .minihand { display:flex; gap:3px; }
+  .mcard { width:19px; height:26px; border-radius:3px; background:#fbfbfd; border:1px solid #c7ccd6;
+           display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
+           font-size:10px; font-weight:800; line-height:1; }
+  .mcard.red { color:#dc2626; } .mcard.black { color:#1f2937; }
+  .mcard .ms { font-size:12px; }
+
+  .instruct { font-size:15px; font-weight:800; margin:13px 0 2px; }
+  .instruct.foul { color:var(--bad); }
+  .subhint { font-size:12px; color:var(--muted); margin:4px 0 0; line-height:1.5; }
+  .progress { font-weight:700; }
+  .actions { display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap; }
+  .btn { border:none; border-radius:10px; padding:11px 16px; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-ghost { background:transparent; color:var(--muted); border:1.5px solid var(--line); }
+  .btn:disabled { opacity:.4; cursor:default; }
+  .btn:active:not(:disabled) { transform:scale(.97); }
+  .actions .btn { min-width:118px; }
+
+  /* result */
+  .verdict { font-size:25px; font-weight:900; letter-spacing:-.5px; margin:2px 0 3px; text-align:center; }
+  .verdict.win { color:var(--good); } .verdict.loss { color:var(--bad); } .verdict.tie { color:var(--muted); }
+  .bigscore { font-size:15px; font-weight:800; text-align:center; }
+  .rowtable { margin:14px 0 4px; border-top:1px solid var(--line); }
+  .rt { display:flex; align-items:center; gap:7px; padding:8px 2px; border-bottom:1px solid var(--line); font-size:12px; }
+  .rt .lab { font-size:9px; font-weight:800; letter-spacing:.5px; color:var(--muted); width:24px; flex:0 0 24px; }
+  .rt .mine { flex:1; } .rt .theirs { flex:1; text-align:right; color:var(--muted); }
+  .rt .vs { font-size:12px; flex:0 0 18px; text-align:center; color:var(--muted); }
+  .rt .pts { font-weight:800; width:32px; flex:0 0 32px; text-align:right; }
+  .rt .pts.pos { color:var(--good); } .rt .pts.neg { color:var(--bad); }
+  .tally { display:flex; justify-content:space-between; font-size:12px; padding:6px 2px; color:var(--muted); gap:10px; }
+  .tally b { color:var(--ink); }
+  .tally.total { font-size:14px; border-top:2px solid var(--line); margin-top:2px; padding-top:9px; }
+  .tally.total b { font-size:17px; }
+
+  .stats { display:flex; justify-content:space-around; margin:6px 0 2px; }
+  .stat { text-align:center; }
+  .stat .n { font-size:21px; font-weight:800; }
+  .stat .l { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+  .countdown { text-align:center; font-size:12px; color:var(--muted); margin-top:12px; }
+  .countdown b { color:var(--ink); font-variant-numeric:tabular-nums; }
+
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center;
+             justify-content:center; padding:16px; z-index:50; }
+  .overlay.on { display:flex; }
+  .modal { background:var(--card); border-radius:16px; padding:18px; max-width:420px; width:100%;
+           max-height:86vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.4); }
+  .modal h2 { margin:0 0 10px; font-size:19px; }
+  .modal h3 { margin:16px 0 4px; font-size:14px; }
+  .modal p, .modal li { font-size:13px; line-height:1.62; }
+  .modal .muted { color:var(--muted); }
+  .closebar { display:flex; justify-content:flex-end; }
+  .x { border:none; background:transparent; color:var(--muted); font-size:26px; cursor:pointer; line-height:1; padding:0; }
+  .riskword { color:var(--bad); font-weight:700; }
+  table.pt { width:100%; border-collapse:collapse; margin-top:8px; font-size:12px; }
+  table.pt td { padding:4px 6px; border-bottom:1px solid var(--line); }
+  table.pt td:last-child { text-align:right; font-weight:800; color:var(--accent-dark); white-space:nowrap; }
+  ol.hr, ol.rules { margin:6px 0 0; padding-left:20px; font-size:12px; line-height:1.7; }
+  ol.hr span { color:var(--muted); }
+
+  .toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+           background:#111827; color:#fff; padding:10px 16px; border-radius:9px; font-size:13px; font-weight:600;
+           opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; z-index:60; box-shadow:0 6px 20px rgba(0,0,0,.35); }
+  .toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
+  .sharebox { width:100%; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.55;
+              background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:10px;
+              padding:10px; margin-top:10px; resize:none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><h1>Daily OFC</h1><span class="puzzle" id="puzzleNo">#—</span></div>
+    <div class="iconbtns">
+      <button class="iconbtn" id="btnStats" title="Statistics">📊</button>
+      <button class="iconbtn" id="btnHelp" title="How to play">❓</button>
+    </div>
+  </header>
+  <div id="pracBar"></div>
+  <div class="panel rival" id="rivalPanel"></div>
+  <div class="panel" id="stage"></div>
+</div>
+
+<div class="overlay" id="ovHelp">
+  <div class="modal"><div class="closebar"><button class="x" data-close>×</button></div>
+  <h2>How to play</h2><div id="helpBody"></div></div>
+</div>
+<div class="overlay" id="ovStats">
+  <div class="modal"><div class="closebar"><button class="x" data-close>×</button></div>
+  <h2>Statistics</h2><div id="statsBody"></div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ===================================================================
+  // Daily OFC — one deal a day, no server and no accounts. The deal is
+  // derived from the calendar date, so everyone who opens the page on the
+  // same day gets identical cards and an identical rival. That is what
+  // makes pasted results comparable: your friends played YOUR hand.
+  // ===================================================================
+
+  var RANKS = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
+  var SUITS = ["♣","♦","♥","♠"];
+  var CAPS  = [3, 5, 5];                      // top, middle, bottom
+  var HAND  = 17;                             // 5 opening + 4 rounds of 3
+  var EPOCH = new Date(2026, 0, 1);           // puzzle #1
+  var RIVAL = "Rival";
+
+  var K_STATS = "ofc-daily-stats-v1";
+
+  function $(id) { return document.getElementById(id); }
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  var toastT = null;
+  function toast(msg, ms) {
+    var el = $("toast"); el.textContent = msg; el.classList.add("on");
+    clearTimeout(toastT); toastT = setTimeout(function () { el.classList.remove("on"); }, ms || 1700);
+  }
+  function fmt(n) {
+    var r = Math.round(n * 10) / 10, a = Math.abs(r);
+    var s = (a === Math.floor(a)) ? String(a) : a.toFixed(1);
+    return r > 0 ? "+" + s : r < 0 ? "−" + s : "0";
+  }
+
+  // ---- the daily deal ---------------------------------------------------
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function todayNo() {
+    var n = new Date(), local = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+    return Math.round((local - EPOCH) / 86400000) + 1;
+  }
+  function dealFor(dayNo) {
+    var rng = mulberry32(Math.imul(dayNo, 0x9E3779B1) ^ 0x5bf03635), deck = [];
+    for (var s = 0; s < 4; s++) for (var r = 0; r < 13; r++) deck.push({ r: r, s: s });
+    for (var i = deck.length - 1; i > 0; i--) {
+      var j = Math.floor(rng() * (i + 1)), t = deck[i]; deck[i] = deck[j]; deck[j] = t;
+    }
+    return { you: deck.slice(0, HAND), rival: deck.slice(HAND, HAND * 2) };
+  }
+
+  // ---- hand evaluation --------------------------------------------------
+  // Every hand becomes [category, t1..t5] so ONE comparator handles any two
+  // hands of any size. 0 high · 1 pair · 2 two-pair · 3 trips · 4 straight
+  // · 5 flush · 6 full · 7 quads · 8 straight-flush.
+  function pad(cat, ties) { var a = [cat]; for (var i = 0; i < 5; i++) a.push(ties[i] == null ? -1 : ties[i]); return a; }
+  function eval5(cards) {
+    var rc = {}, s0 = cards[0].s, flush = true;
+    cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; if (c.s !== s0) flush = false; });
+    var uniq = Object.keys(rc).map(Number).sort(function (a, b) { return a - b; });
+    var by = uniq.slice().sort(function (a, b) { return rc[b] - rc[a] || b - a; });
+    var freqs = by.map(function (r) { return rc[r]; });
+    var ranks = cards.map(function (c) { return c.r; }).sort(function (a, b) { return b - a; });
+    var straight = false, shigh = -1;
+    if (uniq.length === 5) {
+      if (uniq[4] - uniq[0] === 4) { straight = true; shigh = uniq[4]; }
+      if (uniq[0] === 0 && uniq[1] === 1 && uniq[2] === 2 && uniq[3] === 3 && uniq[4] === 12) { straight = true; shigh = 3; }
+    }
+    if (flush && straight) return pad(8, [shigh]);
+    if (freqs[0] === 4) return pad(7, [by[0], by[1]]);
+    if (freqs[0] === 3 && freqs[1] === 2) return pad(6, [by[0], by[1]]);
+    if (flush) return pad(5, ranks);
+    if (straight) return pad(4, [shigh]);
+    if (freqs[0] === 3) return pad(3, [by[0], by[1], by[2]]);
+    if (freqs[0] === 2 && freqs[1] === 2) return pad(2, [by[0], by[1], by[2]]);
+    if (freqs[0] === 2) return pad(1, [by[0], by[1], by[2], by[3]]);
+    return pad(0, ranks);
+  }
+  function evalHand(cards) {
+    if (!cards.length) return null;
+    if (cards.length === 5) return eval5(cards);
+    var rc = {}; cards.forEach(function (c) { rc[c.r] = (rc[c.r] || 0) + 1; });
+    var by = Object.keys(rc).map(Number).sort(function (a, b) { return rc[b] - rc[a] || b - a; });
+    var f0 = rc[by[0]], cat;
+    if (f0 === 4) cat = 7; else if (f0 === 3) cat = 3;
+    else if (f0 === 2) cat = (rc[by[1]] === 2) ? 2 : 1; else cat = 0;
+    return pad(cat, by);
+  }
+  function cmp(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] - b[i]; } return 0; }
+  function handName(e) {
+    if (!e) return "—";
+    switch (e[0]) {
+      case 8: return e[1] === 12 ? "Royal flush" : "Straight flush";
+      case 7: return "Quads " + RANKS[e[1]]; case 6: return "Full house"; case 5: return "Flush";
+      case 4: return "Straight"; case 3: return "Trips " + RANKS[e[1]]; case 2: return "Two pair";
+      case 1: return "Pair " + RANKS[e[1]]; default: return RANKS[e[1]] + " high";
+    }
+  }
+
+  // Standard OFC royalties. These are the real numbers, not a house scale --
+  // heads-up they are NETTED against the rival's, so the big ones only pay
+  // to the extent they beat what the rival made in the same row.
+  function royTop(e) {
+    if (!e || e.length < 2) return 0;
+    if (e[0] === 3) return 10 + e[1];               // trips 222=10 … AAA=22
+    if (e[0] === 1) return e[1] >= 4 ? e[1] - 3 : 0; // pair 66=1 … AA=9
+    return 0;
+  }
+  function royMid(e) {
+    if (!e) return 0;
+    switch (e[0]) { case 8: return e[1] === 12 ? 50 : 30; case 7: return 20; case 6: return 12;
+      case 5: return 8; case 4: return 4; case 3: return 2; default: return 0; }
+  }
+  function royBot(e) {
+    if (!e) return 0;
+    switch (e[0]) { case 8: return e[1] === 12 ? 25 : 15; case 7: return 10; case 6: return 6;
+      case 5: return 4; case 4: return 2; default: return 0; }
+  }
+
+  function rowsFromPlace(cards, place) {
+    var top = [], mid = [], bot = [];
+    for (var i = 0; i < place.length; i++) {
+      if (place[i] === 0) top.push(cards[i]); else if (place[i] === 1) mid.push(cards[i]); else if (place[i] === 2) bot.push(cards[i]);
+    }
+    return { top: top, mid: mid, bot: bot };
+  }
+  function boardInfo(rows) {
+    var et = evalHand(rows.top), em = evalHand(rows.mid), eb = evalHand(rows.bot);
+    var fouled = !(et && em && eb && cmp(eb, em) >= 0 && cmp(em, et) >= 0);
+    var rr = fouled ? [0, 0, 0] : [royTop(et), royMid(em), royBot(eb)];
+    return { et: et, em: em, eb: eb, fouled: fouled, royRows: rr, roy: rr[0] + rr[1] + rr[2] };
+  }
+
+  // ---- scoring (standard heads-up OFC) ----------------------------------
+  // +1 per row won, −1 per row lost. All three rows is a SCOOP, worth a
+  // further +3. Royalties net against the rival's. A foul surrenders every
+  // row and every royalty of your own, and still owes the rival theirs.
+  function scoreHeadsUp(you, rival) {
+    var y = boardInfo(you), r = boardInfo(rival);
+    var o = { you: y, rival: r, rows: [0,0,0], rowPts: 0, scoop: 0, royNet: 0, total: 0, scooped: false, scoopedOn: false };
+    if (y.fouled && r.fouled) return o;
+    if (y.fouled) { o.rows = [-1,-1,-1]; o.rowPts = -3; o.scoop = -3; o.royNet = -r.roy; o.total = -6 - r.roy; o.scoopedOn = true; return o; }
+    if (r.fouled) { o.rows = [1,1,1]; o.rowPts = 3; o.scoop = 3; o.royNet = y.roy; o.total = 6 + y.roy; o.scooped = true; return o; }
+    var pairs = [[y.et, r.et], [y.em, r.em], [y.eb, r.eb]], won = 0, lost = 0;
+    for (var i = 0; i < 3; i++) {
+      var d = cmp(pairs[i][0], pairs[i][1]);
+      o.rows[i] = d > 0 ? 1 : d < 0 ? -1 : 0;
+      if (d > 0) won++; else if (d < 0) lost++;
+    }
+    o.rowPts = o.rows[0] + o.rows[1] + o.rows[2];
+    if (won === 3) { o.scoop = 3; o.scooped = true; }
+    else if (lost === 3) { o.scoop = -3; o.scoopedOn = true; }
+    o.royNet = y.roy - r.roy;
+    o.total = o.rowPts + o.scoop + o.royNet;
+    return o;
+  }
+
+  // ---- the rival --------------------------------------------------------
+  // Fixed, published rules — like a blackjack dealer, it plays the same way
+  // every time and you are meant to learn it. It knows only what it can see:
+  // its own cards, plus whatever you have already placed face-up. It never
+  // looks at its own future cards and never at cards still in your hand.
+  //
+  // Every legal placement of a reveal is enumerated and scored by:
+  //   1. staying legal — rows are compared by their PROJECTED final strength
+  //      (what's made now, plus room left to improve), and going out of
+  //      order is punished far harder than any royalty is worth;
+  //   2. royalties actually banked, discounted by how empty the row still is;
+  //   3. high cards belong at the bottom, low cards up top;
+  //   4. flush draws, faded out as the suit dies in your visible cards.
+  var ORD = 6, ROYW = 0.7, GROW = 5.5, HILO = 0.15;   // tuned: ~7% foul rate
+  function stOf(e) { return e ? e[0] * 13 + (e[1] < 0 ? 0 : e[1]) : -1; }
+  function projected(cs, cap) { return stOf(evalHand(cs)) + (cap - cs.length) * GROW; }
+  function drawVal(cs, cap, deadSuit) {
+    if (!cs.length || cs.length >= cap) return 0;
+    var su = {}, best = 0, bs = -1;
+    cs.forEach(function (c) { su[c.s] = (su[c.s] || 0) + 1; if (su[c.s] > best) { best = su[c.s]; bs = c.s; } });
+    if (best < 3) return 0;
+    var live = 13 - best - (deadSuit[bs] || 0);        // how much of the suit is still out there
+    return (best - 2) * (live > 4 ? 1 : Math.max(0, live) / 4);
+  }
+  function botScore(t, m, b, deadSuit) {
+    var et = evalHand(t), em = evalHand(m), eb = evalHand(b), s = 0;
+    if (t.length >= CAPS[0] && m.length >= CAPS[1] && cmp(et, em) > 0) s -= 100000;
+    if (m.length >= CAPS[1] && b.length >= CAPS[2] && cmp(em, eb) > 0) s -= 100000;
+    var pT = projected(t, CAPS[0]), pM = projected(m, CAPS[1]), pB = projected(b, CAPS[2]);
+    if (pT > pM) s -= (pT - pM) * ORD;
+    if (pM > pB) s -= (pM - pB) * ORD;
+    if (et) s += royTop(et) * (t.length / CAPS[0]) * ROYW;
+    if (em) s += royMid(em) * (m.length / CAPS[1]) * ROYW;
+    if (eb) s += royBot(eb) * (b.length / CAPS[2]) * ROYW;
+    b.forEach(function (c) { s += c.r * HILO; });
+    t.forEach(function (c) { s -= c.r * HILO * 1.3; });
+    s += drawVal(m, CAPS[1], deadSuit) * 0.4 + drawVal(b, CAPS[2], deadSuit) * 0.6;
+    return s;
+  }
+  function botOpening(five, deadSuit) {
+    var best = null, bestS = -Infinity;
+    for (var mask = 0; mask < 243; mask++) {
+      var a = [], x = mask, i;
+      for (i = 0; i < 5; i++) { a.push(x % 3); x = Math.floor(x / 3); }
+      var t = [], m = [], b = [];
+      for (i = 0; i < 5; i++) (a[i] === 0 ? t : a[i] === 1 ? m : b).push(five[i]);
+      if (t.length > CAPS[0]) continue;
+      var s = botScore(t, m, b, deadSuit);
+      if (s > bestS) { bestS = s; best = a; }           // first best wins → deterministic
+    }
+    return best;
+  }
+  function botRound(rows, three, deadSuit) {
+    var best = null, bestS = -Infinity;
+    for (var toss = 0; toss < 3; toss++) {
+      var keep = [0, 1, 2].filter(function (i) { return i !== toss; });
+      for (var ra = 0; ra < 3; ra++) for (var rb = 0; rb < 3; rb++) {
+        var t = rows[0].slice(), m = rows[1].slice(), b = rows[2].slice(), d = [t, m, b];
+        if (d[ra].length >= CAPS[ra]) continue; d[ra].push(three[keep[0]]);
+        if (d[rb].length >= CAPS[rb]) continue; d[rb].push(three[keep[1]]);
+        var s = botScore(t, m, b, deadSuit);
+        if (s > bestS) { bestS = s; best = { toss: toss, keep: keep, rows: [ra, rb] }; }
+      }
+    }
+    return best;
+  }
+
+  // ---- state ------------------------------------------------------------
+  // ?d=N opens any puzzle in the archive. Only today's counts: everything else
+  // is PRACTICE — its own saved board, no effect on your record or streak — so
+  // finishing today doesn't leave you locked out until midnight.
+  var TODAY = todayNo();
+  var DAY = (function () {
+    var m = /[?&]d=(\d+)/.exec(location.search);
+    var n = m ? parseInt(m[1], 10) : 0;
+    return (n > 0 && n <= 3650000) ? n : TODAY;
+  })();
+  var PRACTICE = DAY !== TODAY;
+  var K_RESULT = PRACTICE ? "ofc-practice-result-" + DAY : "ofc-daily-result-v1";
+  var K_WIP    = PRACTICE ? "ofc-practice-wip-" + DAY : "ofc-daily-wip-v1";
+  var deal = dealFor(DAY);
+  var result = lsGet(K_RESULT); if (!result || result.day !== DAY) result = null;
+  var stats = lsGet(K_STATS) || { played:0, wins:0, ties:0, losses:0, streak:0, maxStreak:0, totalScore:0, scoops:0, fouls:0, lastDay:null };
+  function otherPuzzle() {                      // a puzzle you haven't got open
+    if (TODAY <= 1) return DAY + 1;
+    var n = DAY;
+    for (var guard = 0; guard < 50 && n === DAY; guard++) n = 1 + Math.floor(Math.random() * TODAY);
+    return n === DAY ? (DAY === 1 ? 2 : DAY - 1) : n;
+  }
+
+  var place = [], phase = "opening", roundIdx = 0, selIdx = null, revealPlaced = [];
+  for (var z = 0; z < HAND; z++) place.push(null);
+
+  // The rival's line is a pure function of the deal plus whatever you had
+  // placed when it acted, so it is recomputed rather than stored — reloading
+  // can never desync it, and it stays identical for everyone on the same day.
+  function myVisibleBefore(cardIdxLimit, myPlace) {
+    var out = [];
+    for (var i = 0; i < cardIdxLimit && i < HAND; i++) {
+      var p = myPlace[i];
+      if (p === 0 || p === 1 || p === 2) out.push(deal.you[i]);
+    }
+    return out;
+  }
+  function suitCount(cards) { var d = {}; cards.forEach(function (c) { d[c.s] = (d[c.s] || 0) + 1; }); return d; }
+  function computeRival(roundsToPlay, myPlace) {
+    var rows = [[], [], []], p = [], i;
+    for (i = 0; i < HAND; i++) p.push(null);
+    var openDead = suitCount([]);                       // nothing of yours is face-up yet
+    var open = botOpening(deal.rival.slice(0, 5), openDead);
+    for (i = 0; i < 5; i++) { p[i] = open[i]; rows[open[i]].push(deal.rival[i]); }
+    for (var r = 0; r < roundsToPlay; r++) {
+      var base = 5 + 3 * r, three = [deal.rival[base], deal.rival[base + 1], deal.rival[base + 2]];
+      // it acts before you each round, so it sees your board through round r-1
+      var dead = suitCount(myVisibleBefore(5 + 3 * r, myPlace));
+      var mv = botRound(rows, three, dead);
+      if (!mv) break;
+      p[base + mv.toss] = 3;
+      for (i = 0; i < 2; i++) { var k = mv.keep[i], row = mv.rows[i]; p[base + k] = row; rows[row].push(three[k]); }
+    }
+    return p;
+  }
+  function rivalRoundsDone() {
+    if (result) return 4;
+    return phase === "opening" ? 0 : roundIdx + 1;
+  }
+  var rivalPlace = [];
+
+  // ---- progress persistence ---------------------------------------------
+  // Saved after every tap. Without it you could see the deal and the rival's
+  // reply, close the tab, and reopen to a clean slate — one puzzle a day
+  // would quietly become unlimited retries.
+  function saveWip() {
+    lsSet(K_WIP, { day: DAY, state: { place: place.slice(), phase: phase, roundIdx: roundIdx,
+      revealPlaced: revealPlaced.slice(), selIdx: selIdx } });
+  }
+  function clearWip() { try { localStorage.removeItem(K_WIP); } catch (e) {} }
+  function restoreWip() {
+    var w = lsGet(K_WIP);
+    if (!w || w.day !== DAY) return false;
+    var s = w.state;
+    if (!s || Object.prototype.toString.call(s.place) !== "[object Array]" || s.place.length !== HAND) return false;
+    var ph = s.phase === "round" ? "round" : "opening";
+    var ri = ph === "round" ? (s.roundIdx | 0) : 0;
+    if (ri < 0 || ri > 3) return false;
+    var start = ph === "opening" ? 0 : 5 + 3 * ri, end = ph === "opening" ? 5 : start + 3, c = [0, 0, 0];
+    for (var i = 0; i < HAND; i++) {
+      var v = s.place[i], on = (v === 0 || v === 1 || v === 2);
+      if (!(v === null || v === 3 || on)) return false;
+      if (on) c[v]++;
+      if (i >= end && v !== null) return false;         // that card isn't dealt yet
+      if (i < start && v === null) return false;        // an earlier reveal was left open
+    }
+    if (c[0] > CAPS[0] || c[1] > CAPS[1] || c[2] > CAPS[2]) return false;
+    place = s.place.slice(); phase = ph; roundIdx = ri;
+    revealPlaced = (s.revealPlaced || []).filter(function (i) {
+      return i >= start && i < end && (place[i] === 0 || place[i] === 1 || place[i] === 2);
+    });
+    selIdx = (s.selIdx != null && s.selIdx >= start && s.selIdx < end && place[s.selIdx] == null) ? s.selIdx : null;
+    return true;
+  }
+
+  // ---- rendering --------------------------------------------------------
+  function isRed(c) { return c.s === 1 || c.s === 2; }
+  function bcard(c) { return '<div class="bcard ' + (isRed(c) ? "red" : "black") + '"><span class="brk">' + RANKS[c.r] + '</span><span class="bsu">' + SUITS[c.s] + '</span></div>'; }
+  function scard(c) { return '<div class="scard ' + (isRed(c) ? "red" : "black") + '"><span class="srk">' + RANKS[c.r] + '</span><span class="ssu">' + SUITS[c.s] + '</span></div>'; }
+  function mcard(c) { return '<span class="mcard ' + (isRed(c) ? "red" : "black") + '">' + RANKS[c.r] + '<span class="ms">' + SUITS[c.s] + '</span></span>'; }
+
+  function renderRival() {
+    var done = !!result;
+    var n = done ? HAND : (phase === "opening" ? 5 : Math.min(HAND, 5 + 3 * (roundIdx + 1)));
+    var rows = { top: [], mid: [], bot: [] }, hidden = 0, seen = [];
+    for (var i = 0; i < n; i++) {
+      var c = deal.rival[i], p = rivalPlace[i];
+      // In real Pineapple the discard goes face down — you learn a card is gone
+      // without learning which one, so counting dead cards stays a genuine read.
+      if (p === 0) rows.top.push(c); else if (p === 1) rows.mid.push(c); else if (p === 2) rows.bot.push(c);
+      else if (p === 3) { hidden++; continue; }
+      if (p != null) seen.push(c);
+    }
+    var info = done ? boardInfo(rows) : null;
+    var labels = ["TOP", "MID", "BOT"], arr = [rows.top, rows.mid, rows.bot];
+    var html = '<div class="rivalhead"><div class="who">\u{1F916} ' + RIVAL + '</div><div class="tot">' +
+      (done ? (info.fouled ? "FOULED" : "royalties " + (info.roy ? "+" + info.roy : "0")) : seen.length + " cards shown") +
+      '</div></div>';
+    for (var r = 0; r < 3; r++) {
+      var cs = arr[r], cells = "";
+      for (var k = 0; k < CAPS[r]; k++) cells += k < cs.length ? scard(cs[k]) : '<div class="sslot"></div>';
+      var roy = done && !info.fouled ? info.royRows[r] : 0;
+      html += '<div class="rrow"><div class="rlab">' + labels[r] + '</div><div class="rcards">' + cells + '</div>' +
+        '<div class="rname"><b>' + (cs.length ? handName(evalHand(cs)) : "—") + '</b>' +
+        (roy ? ' <span class="rroy">+' + roy + '</span>' : "") + '</div></div>';
+    }
+    if (hidden) html += '<div class="rtoss">' + hidden + ' tossed face down</div>';
+    if (!done) {
+      // Dead-card count: the whole point of watching the rival play.
+      var mine = 0; for (var q = 0; q < HAND; q++) if (place[q] != null) mine++;
+      html += '<div class="seen">You can see <b>' + (seen.length + mine) + ' of 52</b> cards. ' +
+        'Every card here is one that can no longer come to you.</div>';
+    }
+    $("rivalPanel").innerHTML = html;
+  }
+
+  function revealIdx() { if (phase === "opening") return [0,1,2,3,4]; var b = 5 + 3 * roundIdx; return [b, b+1, b+2]; }
+  function need() { return phase === "opening" ? 5 : 2; }
+  function complete() { return revealPlaced.length >= need(); }
+  function counts() { var c = [0,0,0]; for (var i = 0; i < HAND; i++) if (place[i] === 0 || place[i] === 1 || place[i] === 2) c[place[i]]++; return c; }
+  function rowCards(row) { var a = []; for (var i = 0; i < HAND; i++) if (place[i] === row) a.push(deal.you[i]); return a; }
+  function pending() { return revealIdx().filter(function (i) { return place[i] == null; }); }
+
+  // Red = a row that's part of an out-of-order pair AND that you can still
+  // act on to fix it. Green = safely in order with its neighbour.
+  function foulStates() {
+    var eT = evalHand(rowCards(0)), eM = evalHand(rowCards(1)), eB = evalHand(rowCards(2));
+    var tm = (eT && eM) && cmp(eT, eM) > 0, mb = (eM && eB) && cmp(eM, eB) > 0;
+    function canAdd(row) { return rowCards(row).length < CAPS[row]; }
+    function canUndo(row) { return revealPlaced.some(function (i) { return place[i] === row; }); }
+    var topRed = tm && canUndo(0);
+    var midRed = (tm && (canAdd(1) || canUndo(1))) || (mb && canUndo(1));
+    var botRed = mb && (canAdd(2) || canUndo(2));
+    return [ topRed ? "risk" : (!tm && eT && eM ? "safe" : ""),
+             midRed ? "risk" : (!tm && !mb && ((eT && eM) || (eM && eB)) ? "safe" : ""),
+             botRed ? "risk" : (!mb && eM && eB ? "safe" : "") ];
+  }
+  // How many of the rival's 17 cards you've been shown. It acts first each
+  // round, so this is always a reveal ahead of you.
+  function rivalSeenCount() {
+    if (result) return HAND;
+    return phase === "opening" ? 5 : Math.min(HAND, 5 + 3 * (roundIdx + 1));
+  }
+  // The rival's board as far as REVEALED — never further, so nothing leaks.
+  function rivalShownRows() {
+    var n = rivalSeenCount(), rows = [[], [], []];
+    for (var i = 0; i < n && i < HAND; i++) {
+      var p = rivalPlace[i];
+      if (p === 0 || p === 1 || p === 2) rows[p].push(deal.rival[i]);
+    }
+    return rows;
+  }
+  // What this row is up against — the thing you're actually scored on. Named
+  // with a verb so it reads as the rival's hand, not a hand you must make.
+  function vsRival(row, cs) {
+    var rr = rivalShownRows()[row];
+    if (rr.length < CAPS[row] || !cs.length) return "";     // their row isn't a target yet
+    var theirs = handName(evalHand(rr));
+    var d = cmp(evalHand(cs), evalHand(rr));
+    if (d > 0) return '<span class="vs ahead">▲ beats ' + theirs + '</span>';
+    if (d === 0) return '<span class="vs level">= ties ' + theirs + '</span>';
+    var settled = cs.length >= CAPS[row];                   // your row can no longer change
+    return '<span class="vs behind">▼ ' + (settled ? 'lost to ' : 'must beat ') + theirs + '</span>';
+  }
+  function boardRow(row, warn) {
+    var cap = CAPS[row], cs = rowCards(row), full = cs.length >= cap;
+    var canPlace = selIdx != null && !full && !complete(), slots = "", NAMES = ["TOP","MIDDLE","BOTTOM"];
+    for (var i = 0; i < cap; i++) slots += i < cs.length ? bcard(cs[i]) : '<div class="slot"></div>';
+    return '<div class="brow' + (canPlace ? " tappable" : "") + (full ? " full" : "") + '"' + (canPlace ? ' data-row="' + row + '"' : "") + '>' +
+      '<div class="rhead">' + NAMES[row] + ' (' + cs.length + '/' + cap + ') <span class="made ' + (warn || "") + '">' +
+      (cs.length ? handName(evalHand(cs)) : "—") + '</span>' + vsRival(row, cs) + '</div>' +
+      '<div class="slots">' + slots + '</div></div>';
+  }
+  function paint() {
+    saveWip();
+    rivalPlace = computeRival(rivalRoundsDone(), place);
+    renderRival();
+    var done = complete(), pend = pending();
+    var tray = pend.map(function (i) {
+      return '<div class="trayc' + (selIdx === i ? " sel" : "") + (done ? " toss" : "") + '"' + (done ? "" : ' data-sel="' + i + '"') + '>' +
+        bcard(deal.you[i]) + (done ? '<span class="tosstag">TOSS</span>' : "") + '</div>';
+    }).join("");
+    var disc = []; for (var i = 0; i < HAND; i++) if (place[i] === 3) disc.push(deal.you[i]);
+    var lastRound = (phase === "round" && roundIdx === 3);
+    var label = phase === "opening" ? "OPENING — place all 5" : "ROUND " + (roundIdx + 1) + " of 4 — keep 2, toss 1";
+    var instr;
+    if (done) instr = phase === "opening" ? "Opening set — undo to rearrange, or deal the first round."
+      : lastRound ? "Last cards placed — undo to change, or show down." : "Undo to rearrange, or deal the next round.";
+    else instr = selIdx == null ? (phase === "opening" ? "Pick a card, then tap a row" : "Pick which 2 of 3 to keep") : "Tap a row to place it";
+    var cnt = counts(), fs = foulStates();
+    var proceedLabel = phase === "opening" ? "Deal round 1 ▸" : lastRound ? "Show down ✓" : "Deal round " + (roundIdx + 2) + " ▸";
+    $("stage").innerHTML = '<div class="ofc">' +
+      '<div class="board">' + boardRow(0, fs[0]) + boardRow(1, fs[1]) + boardRow(2, fs[2]) + '</div>' +
+      '<div class="toplace"><div class="curlabel">' + label + '</div><div class="tray">' + tray + '</div>' +
+      (disc.length ? '<div class="discpile">tossed&nbsp;' + disc.map(mcard).join("") + '</div>' : "") + '</div>' +
+      '<div class="instruct">' + instr + '</div>' +
+      '<div class="subhint"><span class="progress">' + (cnt[0]+cnt[1]+cnt[2]) + ' / 13 placed</span> · finish with Bottom ≥ Middle ≥ Top</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="undo"' + (revealPlaced.length ? "" : " disabled") + '>↶ Undo</button>' +
+      (done ? '<button class="btn btn-primary" id="proceed">' + proceedLabel + '</button>' : "") + '</div></div>';
+    Array.prototype.forEach.call($("stage").querySelectorAll(".trayc[data-sel]"), function (el) {
+      el.addEventListener("click", function () { selIdx = +el.getAttribute("data-sel"); paint(); }); });
+    Array.prototype.forEach.call($("stage").querySelectorAll(".brow.tappable"), function (el) {
+      el.addEventListener("click", function () { placeSel(+el.getAttribute("data-row")); }); });
+    var u = $("undo"); if (u) u.addEventListener("click", undo);
+    var pr = $("proceed"); if (pr) pr.addEventListener("click", proceed);
+  }
+  function placeSel(row) {
+    if (selIdx == null || complete() || counts()[row] >= CAPS[row]) return;
+    place[selIdx] = row; revealPlaced.push(selIdx); selIdx = null; paint();
+  }
+  function undo() {
+    if (!revealPlaced.length) return;
+    var i = revealPlaced.pop(); place[i] = null; selIdx = i; paint();
+  }
+  function proceed() {
+    if (!complete()) return;
+    if (phase === "opening") { phase = "round"; roundIdx = 0; revealPlaced = []; selIdx = null; paint(); return; }
+    pending().forEach(function (i) { place[i] = 3; });
+    revealPlaced = []; selIdx = null;
+    if (roundIdx === 3) { finish(); return; }
+    roundIdx++; paint();
+  }
+
+  function finish() {
+    rivalPlace = computeRival(4, place);
+    var sc = scoreHeadsUp(rowsFromPlace(deal.you, place), rowsFromPlace(deal.rival, rivalPlace));
+    result = { day: DAY, place: place.slice(), total: sc.total };
+    lsSet(K_RESULT, result); clearWip(); bumpStats(sc); renderResult();
+  }
+  function bumpStats(sc) {
+    if (PRACTICE) return;                   // practice never touches your record or streak
+    if (stats.lastDay === DAY) return;
+    stats.played++; stats.totalScore += sc.total;
+    if (sc.total > 0) { stats.wins++; stats.streak++; if (stats.streak > stats.maxStreak) stats.maxStreak = stats.streak; }
+    else if (sc.total < 0) { stats.losses++; stats.streak = 0; }
+    else stats.ties++;
+    if (sc.scooped) stats.scoops++;
+    if (sc.you.fouled) stats.fouls++;
+    stats.lastDay = DAY; lsSet(K_STATS, stats);
+  }
+
+  function currentScore() {
+    rivalPlace = computeRival(4, result.place);
+    return scoreHeadsUp(rowsFromPlace(deal.you, result.place), rowsFromPlace(deal.rival, rivalPlace));
+  }
+  function renderResult() {
+    var sc = currentScore();
+    renderRival();
+    var labels = ["TOP","MID","BOT"];
+    var myE = [sc.you.et, sc.you.em, sc.you.eb], thE = [sc.rival.et, sc.rival.em, sc.rival.eb];
+    var verdict = sc.you.fouled ? "Fouled" : sc.total > 0 ? "You win" : sc.total < 0 ? RIVAL + " wins" : "Push";
+    var vclass = sc.total > 0 ? "win" : sc.total < 0 ? "loss" : "tie";
+    var html = '<div class="verdict ' + vclass + '">' + verdict + (sc.scooped && !sc.rival.fouled ? " — SCOOP!" : "") + '</div>' +
+      '<div class="bigscore">' + fmt(sc.total) + ' point' + (Math.abs(sc.total) === 1 ? "" : "s") + '</div><div class="rowtable">';
+    for (var i = 0; i < 3; i++) {
+      var p = sc.rows[i];
+      html += '<div class="rt"><div class="lab">' + labels[i] + '</div>' +
+        '<div class="mine">' + handName(myE[i]) + (sc.you.royRows[i] ? ' <span class="rroy">+' + sc.you.royRows[i] + '</span>' : "") + '</div>' +
+        '<div class="vs">' + (p > 0 ? "▸" : p < 0 ? "◂" : "–") + '</div>' +
+        '<div class="theirs">' + handName(thE[i]) + (sc.rival.royRows[i] ? ' +' + sc.rival.royRows[i] : "") + '</div>' +
+        '<div class="pts ' + (p > 0 ? "pos" : p < 0 ? "neg" : "") + '">' + fmt(p) + '</div></div>';
+    }
+    html += '</div>';
+    if (sc.you.fouled) html += '<div class="tally"><span>Fouled — every row and royalty forfeited</span><b>' + fmt(-6) + '</b></div>';
+    else if (sc.rival.fouled) html += '<div class="tally"><span>' + RIVAL + ' fouled — you take all three rows</span><b>' + fmt(6) + '</b></div>';
+    else {
+      html += '<div class="tally"><span>Rows</span><b>' + fmt(sc.rowPts) + '</b></div>';
+      if (sc.scoop) html += '<div class="tally"><span>' + (sc.scoop > 0 ? "Scoop — all three rows" : "Scooped on — lost all three") + '</span><b>' + fmt(sc.scoop) + '</b></div>';
+    }
+    html += '<div class="tally"><span>Royalties — you ' + sc.you.roy + ' v ' + RIVAL.toLowerCase() + ' ' + sc.rival.roy + '</span><b>' + fmt(sc.royNet) + '</b></div>' +
+      '<div class="tally total"><span>Total</span><b>' + fmt(sc.total) + '</b></div>' +
+      '<div class="actions"><button class="btn btn-primary" id="btnShare">Copy result</button>' +
+      '<button class="btn btn-ghost" id="btnAnother">Play another</button></div>' +
+      (PRACTICE ? '<div class="countdown">Practice puzzle — not counted. <a href="?">Back to today</a></div>'
+                : '<div class="countdown">Next deal in <b id="cd">—</b></div>');
+    $("stage").innerHTML = html;
+    $("btnShare").addEventListener("click", doShare);
+    $("btnAnother").addEventListener("click", function () { location.search = "?d=" + otherPuzzle(); });
+    tickCountdown();
+  }
+
+  // ---- share ------------------------------------------------------------
+  // Everyone who plays today played THIS deal against THIS rival, so the
+  // number is directly comparable — that's the actual contest.
+  function shareText() {
+    var sc = currentScore();
+    var squares = sc.you.fouled ? "\u{1F4A5}\u{1F4A5}\u{1F4A5}"
+      : sc.rows.map(function (p) { return p > 0 ? "\u{1F7E9}" : p < 0 ? "\u{1F7E5}" : "⬜"; }).join("");
+    var head = "Daily OFC #" + DAY + (PRACTICE ? " (practice)" : "") + " — " + fmt(sc.total);
+    if (sc.scooped && !sc.rival.fouled) head += " \u{1F9F9}";
+    var lines = [head, squares];
+    if (!sc.you.fouled && sc.you.roy) lines.push("\u{1F451} +" + sc.you.roy + " royalties");
+    if (stats.streak > 1) lines.push("\u{1F525} " + stats.streak + " day streak");
+    // Only paste a link somebody else could actually open — a file:// path is
+    // meaningless to anyone but you. A practice link carries its puzzle number
+    // so the recipient gets THAT deal; today's link intentionally doesn't, so
+    // whoever clicks it plays whatever day they open it on.
+    if (/^https?:$/.test(location.protocol)) {
+      lines.push(location.origin + location.pathname + (PRACTICE ? "?d=" + DAY : ""));
+    }
+    return lines.join("\n");
+  }
+  // Straight to the clipboard — no OS share sheet. On desktop that dialog is a
+  // worse experience than just having the text ready to paste.
+  function doShare() { copyShare(shareText()); }
+  function copyShare(text) {
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.top = "-1000px";
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      if (ok) toast("Copied to clipboard"); else showShareBox(text);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Copied to clipboard"); }, fallback);
+    } else fallback();
+  }
+  function showShareBox(text) {
+    if ($("shareBox")) { $("shareBox").select(); return; }
+    var box = document.createElement("textarea");
+    box.id = "shareBox"; box.className = "sharebox"; box.rows = 5; box.value = text; box.readOnly = true;
+    $("stage").appendChild(box); box.select(); toast("Select and copy");
+  }
+
+  // ---- stats ------------------------------------------------------------
+  function openStats() {
+    var avg = stats.played ? stats.totalScore / stats.played : 0;
+    var winPct = stats.played ? Math.round((stats.wins / stats.played) * 100) : 0;
+    $("statsBody").innerHTML = '<div class="stats">' +
+      '<div class="stat"><div class="n">' + stats.played + '</div><div class="l">Played</div></div>' +
+      '<div class="stat"><div class="n">' + winPct + '</div><div class="l">Win %</div></div>' +
+      '<div class="stat"><div class="n">' + stats.streak + '</div><div class="l">Streak</div></div>' +
+      '<div class="stat"><div class="n">' + stats.maxStreak + '</div><div class="l">Best</div></div></div>' +
+      '<table class="pt" style="margin-top:16px">' +
+      '<tr><td>Average score</td><td>' + fmt(avg) + '</td></tr>' +
+      '<tr><td>Record (W–T–L)</td><td>' + stats.wins + '–' + stats.ties + '–' + stats.losses + '</td></tr>' +
+      '<tr><td>Scoops</td><td>' + stats.scoops + '</td></tr>' +
+      '<tr><td>Fouls</td><td>' + stats.fouls + '</td></tr></table>' +
+      '<p class="muted" style="margin-top:14px">Stats live in this browser only — nothing is uploaded and there is no account.</p>';
+    $("ovStats").classList.add("on");
+  }
+
+  function tickCountdown() {
+    var el = $("cd"); if (!el) return;
+    var n = new Date(), next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1);
+    var ms = next - n, h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
+    function p2(v) { return v < 10 ? "0" + v : String(v); }
+    el.textContent = p2(h) + ":" + p2(m) + ":" + p2(s);
+  }
+  // Roll over to the new deal at midnight — but never yank a practice puzzle away.
+  setInterval(function () { tickCountdown(); if (!PRACTICE && todayNo() !== DAY) location.reload(); }, 1000);
+
+  // ---- help -------------------------------------------------------------
+  $("helpBody").innerHTML =
+    "<p><b>Open-Face Chinese poker</b> (Pineapple). Build three rows that must rank " +
+    "<b>Bottom ≥ Middle ≥ Top</b>, or you <b>FOUL</b>.</p>" +
+    "<ul><li><b>Bottom</b> (5 cards) — your <i>strongest</i> hand</li>" +
+    "<li><b>Middle</b> (5 cards)</li><li><b>Top</b> (3 cards) — the weakest</li></ul>" +
+    "<p><b>The deal:</b> you place 5, then four rounds of <b>deal 3 · place 2 · toss 1</b>. " +
+    "Placed cards lock immediately.</p>" +
+    "<h3>Why there's a rival</h3>" +
+    "<p>Everyone gets the same deal today, so the real contest is your score against your " +
+    "friends' — paste your result and compare. The rival is there to <b>turn cards face-up</b>: " +
+    "it acts first every round, and every card it shows is a card that can no longer come to you. " +
+    "Chasing a flush is a different decision once you've watched four of your suit die.</p>" +
+    "<h3>How the rival plays</h3>" +
+    "<p>It follows fixed rules, like a blackjack dealer — the same deal always produces the same " +
+    "line, so you can learn to read it. It sees only its own cards and the cards you've already " +
+    "placed; never its own future cards, never your hand. In order of priority it:</p>" +
+    "<ol class='rules'><li>keeps its board <b>legal</b> — judging each row by what it can still " +
+    "become, not just what it holds now;</li>" +
+    "<li>takes <b>royalties</b> it can actually bank;</li>" +
+    "<li>sends <b>high cards to the bottom</b>, low cards up top;</li>" +
+    "<li><b>abandons flush draws</b> as it watches that suit die in your board.</li></ol>" +
+    "<p class='muted'>It still fouls about 7% of the time — the same squeeze you feel.</p>" +
+    "<h3>While you build</h3>" +
+    "<p>A row turns <span class='riskword'>red</span> when it's out of order with a neighbour " +
+    "and you can still fix it — normal mid-build, since a low row is often behind until you fill " +
+    "it (green = safely in order). Only the <i>final</i> board has to hold the order.</p>" +
+    "<h3>Scoring</h3>" +
+    "<p><b>+1</b> for each row you win, <b>−1</b> for each you lose. Win all three and that's a " +
+    "<b>scoop</b>, worth a further <b>+3</b>. Royalties are <b>netted</b> against the rival's, so a big " +
+    "hand pays only to the extent it beats theirs. A <b>foul</b> hands over all three rows and every " +
+    "royalty of yours — and you still owe the rival theirs.</p>" +
+    "<table class='pt'>" +
+    "<tr><td><b>Top</b> · pair 66→AA</td><td>1→9</td></tr>" +
+    "<tr><td><b>Top</b> · trips 222→AAA</td><td>10→22</td></tr>" +
+    "<tr><td><b>Mid</b> · trips / straight / flush</td><td>2 / 4 / 8</td></tr>" +
+    "<tr><td><b>Mid</b> · full / quads</td><td>12 / 20</td></tr>" +
+    "<tr><td><b>Mid</b> · str.flush / royal</td><td>30 / 50</td></tr>" +
+    "<tr><td><b>Bot</b> · straight / flush</td><td>2 / 4</td></tr>" +
+    "<tr><td><b>Bot</b> · full / quads</td><td>6 / 10</td></tr>" +
+    "<tr><td><b>Bot</b> · str.flush / royal</td><td>15 / 25</td></tr></table>" +
+    "<h3>Hand ranking</h3>" +
+    "<ol class='hr'><li>Royal flush <span>A K Q J 10, one suit</span></li>" +
+    "<li>Straight flush <span>five in a row, one suit</span></li><li>Four of a kind</li>" +
+    "<li>Full house <span>trips + pair</span></li><li>Flush <span>five of one suit</span></li>" +
+    "<li>Straight <span>five in a row</span></li><li>Three of a kind</li><li>Two pair</li>" +
+    "<li>One pair</li><li>High card</li></ol>" +
+    "<p class='muted' style='margin-top:14px'>A new deal drops at midnight, your time. One attempt — " +
+    "closing the tab mid-hand keeps your progress, it doesn't reset it.</p>";
+
+  $("btnHelp").addEventListener("click", function () { $("ovHelp").classList.add("on"); });
+  $("btnStats").addEventListener("click", openStats);
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
+    b.addEventListener("click", function () { b.parentNode.parentNode.classList.remove("on"); }); });
+  Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (o) {
+    o.addEventListener("click", function (e) { if (e.target === o) o.classList.remove("on"); }); });
+
+  // ---- boot -------------------------------------------------------------
+  $("puzzleNo").textContent = "#" + DAY;
+  if (PRACTICE) {
+    $("pracBar").innerHTML = '<div class="pracbar"><span>Practice · puzzle #' + DAY +
+      ' — doesn\'t count</span><a href="?">Today #' + TODAY + ' →</a></div>';
+  }
+  if (result) { renderResult(); }
+  else { restoreWip(); paint(); }
+
+  window.__OFC = { dealFor: dealFor, computeRival: computeRival, rowsFromPlace: rowsFromPlace,
+    boardInfo: boardInfo, scoreHeadsUp: scoreHeadsUp, evalHand: evalHand, handName: handName, cmp: cmp, HAND: HAND };
+})();
+</script>
+</body>
+</html>
