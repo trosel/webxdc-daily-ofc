@@ -111,6 +111,10 @@
   .otable th { text-align:right; font-size:11px; color:var(--muted); font-weight:600; padding:4px 5px;
                border-bottom:1px solid var(--line); white-space:nowrap; }
   .otable th.l, .otable td.l { text-align:left; }
+  .otable th.sortable { padding:0; }
+  .sortbtn { width:100%; border:0; background:none; color:inherit; font:inherit; font-weight:inherit; padding:4px 5px; text-align:right; cursor:pointer; white-space:nowrap; }
+  .sortbtn.l { text-align:left; }
+  .sortbtn.active { color:var(--ink); }
   .otable td { text-align:right; padding:7px 5px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
   .otable tbody tr:last-child td { border-bottom:none; }
   .otable td.pnm { font-weight:600; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -985,7 +989,7 @@
     formatAvg: function (mean) { return GAME.fmtScore(Math.round(mean * 10) / 10); },
 
     scoreHelp: "+1 per row you beat the rival on, −1 per row you lose, +3 for all three, " +
-      "plus your royalties minus the rival's. 🏆 = days you topped · 🔥 = days played in a row."
+      "plus your royalties minus the rival's. Total score wins overall; tap a column heading to sort. 🏆 = days you topped · 🔥 = days played in a row."
   };
   // ===================================================================
   // ===== END GAME ADAPTER. Generic framework below. ==================
@@ -1059,6 +1063,7 @@
   var votes = {};          // votes[season] = { addr: true } — one-way "yes, reset" per player
   var wipes = {};          // wipes[season] = { startDay, addr } — canonical boundary (min startDay)
   var viewSeason = 0;      // which season the Overall screen is showing
+  var overallSort = { key: "pts", dir: -1 }; // total score descending by default
   var emittedWipe = {};    // seasons this device already broadcast a wipe for (this session)
   var booted = false;      // true once the initial update replay has finished
   var MINE_KEY = "daily-ofc-mine-v1";
@@ -1162,10 +1167,32 @@
       out.push({ addr: ad, name: x.name, played: x.played, wins: x.wins, avg: x.played ? x.sum / x.played : 0,
         trophies: x.trophies, streak: streak(results[ad]), pts: Math.round(x.sum * 10) / 10 });
     }
-    // Rank by AVERAGE daily score (not total), so someone who skips days but plays
-    // well still places on merit. Ties: more days played, then total.
-    out.sort(function (a, b) { return b.avg - a.avg || b.played - a.played || b.pts - a.pts; });
+    // Season standings are ranked by total score. Averages remain available as
+    // a sortable comparison column.
+    out.sort(function (a, b) { return b.pts - a.pts || b.avg - a.avg || b.played - a.played || b.trophies - a.trophies || (a.addr < b.addr ? -1 : 1); });
     return out;
+  }
+
+  function sortOverallRows(rows) {
+    return rows.slice().sort(function (a, b) {
+      var av = a[overallSort.key], bv = b[overallSort.key], cmp;
+      if (overallSort.key === "name") cmp = String(av).localeCompare(String(bv));
+      else cmp = av - bv;
+      return cmp ? cmp * overallSort.dir : (b.pts - a.pts || b.avg - a.avg || (a.addr < b.addr ? -1 : 1));
+    });
+  }
+  function sortHead(key, label, left) {
+    var active = overallSort.key === key;
+    return '<th class="sortable' + (left ? ' l' : '') + '"><button type="button" class="sortbtn' + (left ? ' l' : '') + (active ? ' active' : '') + '" data-sort="' + key + '">' + label + (active ? (overallSort.dir < 0 ? ' ↓' : ' ↑') : '') + '</button></th>';
+  }
+  function bindOverallSort() {
+    var buttons = $("overall").querySelectorAll("[data-sort]");
+    for (var i = 0; i < buttons.length; i++) buttons[i].addEventListener("click", function () {
+      var key = this.getAttribute("data-sort");
+      if (overallSort.key === key) overallSort.dir *= -1;
+      else { overallSort.key = key; overallSort.dir = key === "name" ? 1 : -1; }
+      renderOverall();
+    });
   }
 
   // ---- labels / dates ------------------------------------------------
@@ -1269,7 +1296,7 @@
   function renderOverall() {
     var cs = currentSeason(), me = selfAddr();
     viewSeason = Math.max(0, Math.min(viewSeason, cs));
-    var rows = overallRows(viewSeason);
+    var rows = sortOverallRows(overallRows(viewSeason));
     // season navigation — only surfaced once at least one reset has happened
     var sb = $("seasonBar");
     if (cs > 0) {
@@ -1284,8 +1311,8 @@
     // standings
     if (!rows.length) { $("overall").innerHTML = '<div class="lbempty">No results yet' + (cs > 0 ? ' this season' : '') + '.</div>'; }
     else {
-      var html = '<table class="otable"><thead><tr><th class="l">#</th><th class="l">Player</th>' +
-        '<th>Clean</th><th>Avg</th><th>🏆</th><th>🔥</th><th>Score</th></tr></thead><tbody>';
+      var html = '<table class="otable"><thead><tr><th class="l">#</th>' + sortHead("name", "Player", true) +
+        sortHead("wins", "Clean") + sortHead("avg", "Avg") + sortHead("trophies", "🏆") + sortHead("streak", "🔥") + sortHead("pts", "Score") + '</tr></thead><tbody>';
       rows.forEach(function (r, i) {
         var avg = GAME.formatAvg ? GAME.formatAvg(r.avg) : r.avg.toFixed(1);
         html += '<tr' + (r.addr === me ? ' class="me"' : "") + '>' +
@@ -1296,6 +1323,7 @@
           '<td class="pts">' + r.pts + '</td></tr>';
       });
       $("overall").innerHTML = html + "</tbody></table>";
+      bindOverallSort();
     }
     renderVotePanel(cs);
     $("scoreHelp").textContent = GAME.scoreHelp || "🏆 = days you topped the board · 🔥 = current daily streak.";
